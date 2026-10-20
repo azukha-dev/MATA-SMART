@@ -18,10 +18,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <script>
-/* Shim: google.script.run -> fetch ke GAS Web App */
+/* Shim: google.script.run -> fetch ke GAS Web App (antrian + retry + warm-up + auto-invalidate cache) */
 (function(){
   var API_URL = 'https://script.google.com/macros/s/AKfycbwmrUyLFYVXR03-E81V9ZlF6loqNLBYHRelhoRasVEP226Swciv4R7QAJfbZijxIdOehg/exec';
-  function call(fn, args){
+  var MAX_PARALLEL = 5, active = 0, hi = [], lo = [];
+  var NO_RETRY = /^(submit|update|approve|reject|add|assign|upload|fill|register|export)/;
+  var MUTATE   = /^(submit|update|approve|reject|add|assign|upload|fill)/;
+
+  // warm-up: bangunkan GAS selagi halaman login tampil
+  try{ fetch(API_URL, { mode:'no-cors' }).catch(function(){}); }catch(e){}
+
+  function raw(fn, args){
     return fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -29,6 +36,33 @@
       redirect: 'follow'
     }).then(function(r){ return r.json(); })
       .then(function(j){ if(!j.ok) throw new Error(j.error || 'Server error'); return j.data; });
+  }
+  function next(){
+    while(active < MAX_PARALLEL && (hi.length || lo.length)) run(hi.length ? hi.shift() : lo.shift());
+  }
+  function run(job){
+    active++;
+    var p = raw(job.fn, job.args);
+    if(!NO_RETRY.test(job.fn)){
+      p = p.catch(function(){
+        return new Promise(function(r){ setTimeout(r, 700); }).then(function(){ return raw(job.fn, job.args); });
+      });
+    }
+    p = p.then(function(d){
+      // setelah aksi tulis berhasil -> cache dibuang & di-prefetch ulang (cache hanya berubah saat ada update)
+      if(MUTATE.test(job.fn) && !(d && d.success === false) && window.invalidateCache){ try{ window.invalidateCache(); }catch(e){} }
+      return d;
+    });
+    p.then(job.res, job.rej)
+     .catch(function(e){ console.error(job.fn, e); })
+     .then(function(){ active--; next(); });
+  }
+  function call(fn, args){
+    return new Promise(function(res, rej){
+      var low = (fn === 'getImagesBatch' || fn === 'getImageBase64');   // foto selalu paling belakang
+      (low ? lo : hi).push({ fn: fn, args: args, res: res, rej: rej });
+      next();
+    });
   }
   function make(ok, bad){
     return new Proxy({}, { get: function(_, name){
@@ -1913,26 +1947,96 @@ var wtpRefLinePlugin = {
 window._wtpData = {};   // key: 'zmd'+pabrik / 'ex'+pabrik
 window._wtpChart = null;
 
-/* ============ CACHE (30 MENIT) ============ */
-const CACHE_TTL_MS = 30 * 60 * 1000; // 30 menit
-window._dataCache = {}; // { key: { data, ts } }
+/* ============ CACHE: memori + localStorage, stale-while-revalidate ============ */
+const CACHE_TTL_MS = 30 * 60 * 1000;         // dianggap segar
+const CACHE_STALE_MS = 24 * 60 * 60 * 1000;  // basi tapi masih dipakai sambil diperbarui diam-diam
+const CACHE_MAX_CHARS = 600000;
+window._dataCache = {};
+window._inflight = {};
+window._cacheGen = 0;
 
-/** Ambil data dari cache jika masih valid (<30 menit), kalau tidak fetch ulang dari backend.
- * fetchFn menerima (successCb, errorCb) — WAJIB pasang keduanya ke google.script.run
- * supaya kalau backend error, UI tidak nyangkut "Loading..." selamanya. */
-function cachedCall(cacheKey, fetchFn, onSuccess, onError){
-  const cached = window._dataCache[cacheKey];
-  if(cached && (Date.now() - cached.ts) < CACHE_TTL_MS){
-    onSuccess(cached.data);
-    return;
-  }
+function _pKey(k){ return 'mata_c2|' + (CURRENT_USER ? CURRENT_USER.email : '') + '|' + k; }
+function _pGet(k){ try{ var s = localStorage.getItem(_pKey(k)); return s ? JSON.parse(s) : null; }catch(e){ return null; } }
+function _pSet(k, entry){
+  try{
+    var s = JSON.stringify(entry);
+    if(s.length > CACHE_MAX_CHARS) return;
+    localStorage.setItem(_pKey(k), s);
+  }catch(e){ _pClearAll(); }
+}
+function _pClearAll(){
+  try{
+    for(var i = localStorage.length - 1; i >= 0; i--){
+      var k = localStorage.key(i);
+      if(k && k.indexOf('mata_c2|') === 0) localStorage.removeItem(k);
+    }
+  }catch(e){}
+}
+
+/** true jika data (segar maupun basi) sudah ada -> tidak perlu tampilkan "Loading..." */
+function cacheHas(key){
+  if(window._dataCache[key]) return true;
+  var p = _pGet(key);
+  return !!(p && p.ts && (Date.now() - p.ts) < CACHE_STALE_MS);
+}
+
+function _revalidate(key, fetchFn, ok, bad){
+  var f = window._inflight[key];
+  if(f){ if(ok) f.ok.push(ok); if(bad) f.bad.push(bad); return; }   // request sama sedang jalan -> numpang
+  f = window._inflight[key] = { ok: ok ? [ok] : [], bad: bad ? [bad] : [] };
+  var gen = window._cacheGen, done = false;
   fetchFn(function(res){
-    if(res && res.success !== false) window._dataCache[cacheKey] = { data: res, ts: Date.now() };
-    onSuccess(res);
+    if(done) return; done = true;
+    if(window._inflight[key] === f) delete window._inflight[key];
+    if(res && res.success !== false && res.status !== 'error' && gen === window._cacheGen){
+      var e = { data: res, ts: Date.now() };
+      window._dataCache[key] = e;
+      _pSet(key, e);
+    }
+    f.ok.forEach(function(cb){ try{ cb(res); }catch(err){ console.error(err); } });
   }, function(err){
-    console.error('cachedCall error [' + cacheKey + ']:', err);
-    if(onError) onError(err);
+    if(done) return; done = true;
+    if(window._inflight[key] === f) delete window._inflight[key];
+    console.error('cachedCall error [' + key + ']:', err);
+    f.bad.forEach(function(cb){ try{ cb(err); }catch(e2){ console.error(e2); } });
   });
+}
+
+/** fetchFn menerima (successCb, errorCb). Segar -> langsung pakai. Basi -> pakai dulu, perbarui di belakang layar. */
+function cachedCall(cacheKey, fetchFn, onSuccess, onError){
+  var now = Date.now();
+  var mem = window._dataCache[cacheKey];
+  if(!mem){
+    var p = _pGet(cacheKey);
+    if(p && p.ts && (now - p.ts) < CACHE_STALE_MS){ mem = window._dataCache[cacheKey] = p; }
+  }
+  if(mem && (now - mem.ts) < CACHE_TTL_MS){ onSuccess(mem.data); return; }
+  if(mem){ onSuccess(mem.data); _revalidate(cacheKey, fetchFn, null, null); return; }
+  _revalidate(cacheKey, fetchFn, onSuccess, onError);
+}
+
+/** Muat semua data tab lain di belakang layar, supaya pindah tab langsung tampil */
+function prefetchAll(){
+  if(!CURRENT_USER) return;
+  if(String(CURRENT_USER.posisi || '').toLowerCase().indexOf('operator') !== -1) return;
+  var email = CURRENT_USER.email, role = CURRENT_USER.role;
+  var pabriks = (role === 'ADMIN' || role === 'REGIONAL' || role === 'PSM') ? ['JLMM', 'KUYM'] : [CURRENT_USER.pabrik];
+  var noop = function(){}, jobs = [];
+
+  jobs.push({ key: 'dashboardSummary', fn: function(ok, bad){
+    google.script.run.withSuccessHandler(ok).withFailureHandler(bad).getDashboardSummary(email); } });
+  if(role !== 'PSM'){
+    jobs.push({ key: 'laporList', fn: function(ok, bad){
+      google.script.run.withSuccessHandler(ok).withFailureHandler(bad).getLaporList(email); } });
+  }
+  pabriks.forEach(function(p){
+    Object.keys(JENIS_META).forEach(function(j){
+      jobs.push({ key: 'mon|' + p + '|' + j, fn: function(ok, bad){
+        google.script.run.withSuccessHandler(ok).withFailureHandler(bad)
+          .getMonitoringList(email, p, j, { onlyLatestYear: true, statusFilter: null }); } });
+    });
+  });
+  jobs.forEach(function(j, i){ setTimeout(function(){ cachedCall(j.key, j.fn, noop, noop); }, i * 300); });
 }
 
 /** Helper aman untuk bikin/replace Chart.js pada canvas yang mungkin dipakai ulang.
@@ -1959,7 +2063,12 @@ function safeChart(canvasId, config){
 /** Panggil ini setelah ada perubahan data (submit/approve/reject/tambah/dll)
  * supaya halaman berikutnya mengambil data terbaru, bukan cache lama. */
 function invalidateCache(){
+  window._cacheGen++;
   window._dataCache = {};
+  window._inflight = {};
+  _pClearAll();
+  clearTimeout(window._prefTimer);
+  window._prefTimer = setTimeout(prefetchAll, 1500);   // isi ulang cache di belakang layar
 }
 
 /* ============ STATE ============ */
@@ -2106,23 +2215,62 @@ function extractFileIdJS(url){
 }
 
 var _fotoBase64Cache = {};
+var _fotoQueue = [], _fotoBusy = 0, _fotoPending = {}, _fotoRetry = {};
 
-/* Dipanggil dari onerror <img> — meniru thumbLoadFallback di SRUM.
-   imgId: id elemen <img> yang gagal load, rawUrl: URL asli dari sheet */
+/* Dipanggil dari onerror <img> yang sudah ada (kompatibel) */
 function fotoLoadFallback(imgId, rawUrl){
-  var fileId = extractFileIdJS(rawUrl);
   var img = document.getElementById(imgId);
-  if(!fileId || !img) return;
-  if(_fotoBase64Cache[fileId]){ img.src = _fotoBase64Cache[fileId]; return; }
-  img.style.opacity = '0.4';
-  google.script.run.withSuccessHandler(function(b64){
-    img.style.opacity = '1';
-    if(b64){ _fotoBase64Cache[fileId] = b64; img.src = b64; }
-    else { img.alt = 'Foto tidak dapat dimuat'; img.style.background = '#f1f5f9'; }
-  }).withFailureHandler(function(){
-    img.style.opacity = '1';
-  }).getImageBase64(fileId);
+  if(img) _fotoEnqueue(img, extractFileIdJS(rawUrl));
 }
+
+function _fotoEnqueue(img, fileId){
+  if(!img || !fileId) return;
+  if(_fotoBase64Cache[fileId]){ img.src = _fotoBase64Cache[fileId]; img.style.opacity = '1'; return; }
+  if(img.dataset.fbq === '1') return;          // gambar ini sudah diantrikan
+  img.dataset.fbq = '1';
+  img.style.opacity = '0.4';
+  if(!_fotoPending[fileId]){ _fotoPending[fileId] = []; _fotoQueue.push(fileId); }
+  _fotoPending[fileId].push(img);
+  _fotoPump();
+}
+
+function _fotoPump(){
+  while(_fotoBusy < 3 && _fotoQueue.length){ _fotoRun(_fotoQueue.splice(0, 6)); }   // 6 foto per request, 3 request paralel
+}
+
+function _fotoFinish(ids, map){
+  ids.forEach(function(id){
+    var uri = map && map[id], imgs = _fotoPending[id] || [];
+    if(uri){
+      _fotoBase64Cache[id] = uri;
+      delete _fotoPending[id];
+      imgs.forEach(function(i){ i.src = uri; i.style.opacity = '1'; });
+    } else if(!_fotoRetry[id]){
+      _fotoRetry[id] = 1; _fotoQueue.push(id);   // coba sekali lagi
+    } else {
+      delete _fotoPending[id];
+      imgs.forEach(function(i){ i.style.opacity = '1'; i.alt = 'Foto tidak dapat dimuat'; });
+    }
+  });
+}
+
+function _fotoRun(ids){
+  _fotoBusy++;
+  google.script.run.withSuccessHandler(function(map){
+    _fotoBusy--; _fotoFinish(ids, map); _fotoPump();
+  }).withFailureHandler(function(){
+    _fotoBusy--; _fotoFinish(ids, null); _fotoPump();
+  }).getImagesBatch(ids, 400);
+}
+
+/* Tangkap SEMUA <img> yang gagal (tabel, galeri, thumbnail kunjungan, dst) walau tanpa atribut onerror */
+document.addEventListener('error', function(e){
+  var t = e.target;
+  if(!t || t.tagName !== 'IMG') return;
+  var id = extractFileIdJS(t.getAttribute('src') || '');
+  if(id) _fotoEnqueue(t, id);
+}, true);
+
 
 function openFotoLightbox(imgSrc){
   if(!imgSrc) return;
@@ -2224,6 +2372,7 @@ function enterApp(){
   const pabrikLabel = CURRENT_USER.pabrik || CURRENT_USER.role;
   document.getElementById('topbar-role').innerText = (CURRENT_USER.posisi ? CURRENT_USER.posisi + ' - ' : '') + pabrikLabel;
   checkAssistantAppreciation();
+  setTimeout(prefetchAll, 3500);   // setelah dashboard tampil, muat Lapor + Monitoring di belakang layar
 
   try {
     const posisiLc = String(CURRENT_USER.posisi || '').toLowerCase();
@@ -2683,9 +2832,7 @@ function renderDashboard(){
   DASHBOARD_DRILL = { pabrik: null, jenis: null };
   const area = document.getElementById('content-area');
 
-  const cached = window._dataCache['dashboardSummary'];
-  const isFresh = cached && (Date.now() - cached.ts) < CACHE_TTL_MS;
-  if(!isFresh) area.innerHTML = '<div class="loading">Loading data dashboard...</div>';
+  if(!cacheHas('dashboardSummary')) area.innerHTML = '<div class="loading">Loading data dashboard...</div>';
 
   cachedCall('dashboardSummary', function(cb){
     google.script.run.withSuccessHandler(cb).withFailureHandler(err => {
@@ -3610,7 +3757,7 @@ function loadDashboardNotifications(){
           + '<p class="notif-sub">Klik untuk review &amp; approve.</p></div></div>';
       }
       if(html) notifArea.innerHTML = html + notifArea.innerHTML;
-    }).getLaporList(CURRENT_USER.email);
+    });
   }
 
   if (CURRENT_USER.role === 'KUYM' || CURRENT_USER.role === 'JLMM') {
@@ -3779,16 +3926,19 @@ function drillDownList(pabrik, jenis){
     + '<div class="section-title">' + JENIS_META[jenis].label + ' — Finding Periode Terakhir</div>'
     + '<div class="loading">Loading...</div>';
 
-  google.script.run.withSuccessHandler(res => {
+  cachedCall('mon|' + pabrik + '|' + jenis, function(ok, bad){
+    google.script.run.withSuccessHandler(ok).withFailureHandler(bad)
+      .getMonitoringList(CURRENT_USER.email, pabrik, jenis, { onlyLatestYear: true, statusFilter: null });
+  }, function(res){
     if(!res.success){ area.innerHTML += '<div class="empty-state">' + res.message + '</div>'; return; }
     if(jenis === 'boiler'){
       renderBoilerNoDonuts(res.items, pabrik, jenis, res.canEdit, res.canApprove);
     } else {
       renderFindingList(res.items, pabrik, jenis, res.canEdit, res.canApprove, true);
     }
-  }).withFailureHandler(err => {
+  }, function(err){
     area.innerHTML = '<div class="empty-state">Gagal Loading: ' + err.message + '</div>';
-  }).getMonitoringList(CURRENT_USER.email, pabrik, jenis, { onlyLatestYear: true, statusFilter: null });
+  });
 }
 
 /* Level tambahan khusus Boiler: pecah donut per Boiler No. (col2), baru klik lagi -> list detail */
@@ -3901,13 +4051,16 @@ function openMonitoringList(jenis){
     + '<div class="section-title">' + pabrik + ' — ' + JENIS_META[jenis].label + ' (Open, Periode Terakhir)</div>'
     + '<div class="loading">Loading...</div>';
 
-  google.script.run.withSuccessHandler(res => {
+  cachedCall('mon|' + pabrik + '|' + jenis, function(ok, bad){
+    google.script.run.withSuccessHandler(ok).withFailureHandler(bad)
+      .getMonitoringList(CURRENT_USER.email, pabrik, jenis, { onlyLatestYear: true, statusFilter: null });
+  }, function(res){
     if(!res.success){ area.innerHTML = '<div class="empty-state">' + res.message + '</div>'; return; }
     const filtered = res.items.filter(i => String(i.status).toLowerCase() !== 'close');
     renderFindingList(filtered, pabrik, jenis, res.canEdit, res.canApprove, false);
-  }).withFailureHandler(err => {
+  }, function(err){
     area.innerHTML = '<div class="empty-state">Gagal Loading: ' + err.message + '</div>';
-  }).getMonitoringList(CURRENT_USER.email, pabrik, jenis, { onlyLatestYear: true, statusFilter: null });
+  });
 }
 
 /* ============ RENDER LIST TEMUAN ============ */
@@ -4536,9 +4689,7 @@ function submitAddHeatmap(){
 
 function renderLapor(){
   const area = document.getElementById('content-area');
-  const cached = window._dataCache['laporList'];
-  const isFresh = cached && (Date.now() - cached.ts) < CACHE_TTL_MS;
-  if(!isFresh) area.innerHTML = '<div class="section-title">Lapor!!!</div><div class="loading">Loading laporan...</div>';
+  if(!cacheHas('laporList')) area.innerHTML = '<div class="section-title">Lapor!!!</div><div class="loading">Loading laporan...</div>';
 
   cachedCall('laporList', function(cb){
     google.script.run.withSuccessHandler(cb).withFailureHandler(err => {
