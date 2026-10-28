@@ -1201,6 +1201,40 @@ table.lapor-table tr.row-instrument td{background:#eef1e4;}
 .mi-mon .p3{animation-delay:.7s;}
 .mi-mon .lv{animation:miBolt 1.2s ease-in-out infinite;}
 
+/* ===== CAPEX PIE (dashboard) ===== */
+.cx-pie-wrap{position:relative;width:150px;height:150px;margin:0 auto;}
+.cx-pie-wrap canvas{max-width:150px !important;max-height:150px !important;cursor:pointer;}
+.dark-card.tone-gold .donut-legend{color:#132b15;font-weight:700;}
+.cx-pie-sub{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:rgba(19,43,21,.6);text-align:center;margin-top:6px;}
+
+/* ===== KUNJUNGAN PC: GRAFIK ===== */
+.pcg-card{background:#132b15;border-radius:22px;padding:16px;margin-bottom:16px;color:#fff;}
+.pcg-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px;}
+.pcg-title{font-size:18px;font-weight:800;color:#ebf2a3;line-height:1.1;}
+.pcg-sub{font-size:12px;color:rgba(255,255,255,.55);margin-top:3px;}
+.pcg-avatar{width:42px;height:42px;display:flex;align-items:center;justify-content:center;font-size:26px;color:#ebf2a3;flex-shrink:0;}
+.pcg-avatar.red{color:#ff9b9b;}
+.pcg-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;}
+.pcg-stat{background:rgba(255,255,255,.07);border-radius:14px;padding:10px 4px;text-align:center;cursor:pointer;border:1.5px solid transparent;transition:transform .12s,border-color .15s;}
+.pcg-stat:active{transform:scale(.95);}
+.pcg-stat b{display:block;font-size:22px;line-height:1;color:#fff;}
+.pcg-stat span{display:block;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-top:5px;color:rgba(255,255,255,.55);}
+.pcg-stat.s-open b{color:#ff9b9b;}
+.pcg-stat.s-prog b{color:#e3a72f;}
+.pcg-stat.s-done b{color:#ebf2a3;}
+.pcg-legend{display:flex;gap:14px;font-size:11px;color:rgba(255,255,255,.7);margin-bottom:6px;}
+.pcg-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px;}
+.pcg-chartbox{position:relative;width:100%;}
+.pcg-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:12px;}
+.pcg-toolbar .ios-btn{background:rgba(255,255,255,.14);color:#ebf2a3;}
+.pcg-toolbar .ios-select{
+  background:#ebf2a3 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23132b15' stroke-width='2' stroke-linecap='round'/></svg>") no-repeat right 12px center;
+  color:#132b15;font-weight:800;padding:8px 32px 8px 14px;
+}
+.pcg-toolbar .ios-select option{background:#fff;color:#132b15;}
+.pcg-toolbar .ios-btn.primary{background:#ebf2a3;color:#132b15;}
+.pcg-hint{font-size:10.5px;color:rgba(255,255,255,.45);margin-top:8px;text-align:center;}
+
 /* ===== Ikon MONITORING: layar dengan progress pekerjaan terisi bergantian + titik "live" ===== */
 @keyframes miFill{0%{transform:scaleX(.08)}55%,100%{transform:scaleX(1)}}
 .mi-mon .pb{transform-origin:0 50%;animation:miFill 2.4s ease-in-out infinite;}
@@ -1318,6 +1352,9 @@ table.lapor-table tr.row-instrument td{background:#eef1e4;}
       </button>
       <button id="nav-monitoring" onclick="goTo('monitoring')">
         <span class="icon">🛠️</span>Monitoring
+      </button>
+      <button id="nav-capex" onclick="goTo('capex')">
+        <span class="icon" id="nav-capex-ico">💰</span>Capex
       </button>
       <button id="nav-eForm" onclick="goTo('eForm')">
         <span class="icon">📝</span>eForm
@@ -2386,6 +2423,8 @@ function enterApp(){
     const naveForm = document.getElementById('nav-eForm');
     const navLapor = document.getElementById('nav-lapor');
     const appEl = document.getElementById('app');
+    const navCapex = document.getElementById('nav-capex');
+    if (navCapex) navCapex.style.display = isOperator ? 'none' : 'flex';
 
     if (isOperator) {
       if (appEl) appEl.classList.add('app-no-bottomnav');
@@ -2435,7 +2474,7 @@ function goTo(tab){
   const posisiLcGoTo = String(CURRENT_USER.posisi || '').toLowerCase();
   if (posisiLcGoTo.indexOf('operator') !== -1 && tab !== 'eForm') { tab = 'eForm'; }
   CURRENT_TAB = tab;
-  ['dashboard','monitoring','eForm','lapor'].forEach(t => {
+  ['dashboard','monitoring','capex','eForm','lapor'].forEach(t => {
     const btn = document.getElementById('nav-' + t);
     if(btn) btn.classList.toggle('active', t === tab);
   });
@@ -2443,6 +2482,7 @@ function goTo(tab){
   else if(tab === 'monitoring') renderMonitoringMenu();
   else if(tab === 'eForm') rendereFormMenu();
   else if(tab === 'lapor') renderLapor();
+  else if(tab === 'capex') renderCapex();
 }
 
 
@@ -2486,6 +2526,10 @@ function renderAllPCVisitSections(pabrikKeys){
   }
 
   wrap.innerHTML = html;
+
+  // gambar grafik untuk pabrik yang sedang tampil
+  const shown = pabrikWithData.length === 1 ? pabrikWithData[0] : window._pcVisitTab;
+  drawPCVisitChart(shown);
 }
 
 function setPCVisitTab(pabrik){
@@ -2493,23 +2537,137 @@ function setPCVisitTab(pabrik){
   renderAllPCVisitSections(['JLMM', 'KUYM']);
 }
 
+/* ---- helper status PC ---- */
+function pcvKind(it){ return it.status === 'Selesai' ? 'done' : (it.status === 'On Progress' ? 'prog' : 'open'); }
+
 function renderPCVisitCard(pabrik, items){
   const months = [];
   items.forEach(i => { if(i.bulanLabel && months.indexOf(i.bulanLabel) === -1) months.push(i.bulanLabel); });
   const monthOptions = '<option value="">Semua Bulan</option>' + months.map(m => '<option value="' + m + '">' + m + '</option>').join('');
 
-  return '<div class="ios-card tone-slate">'
-    + '<div class="ios-head"><div>'
-    + '<div class="ios-title">PC</div>'
-    + '<div class="ios-sub">' + pabrik + ' · ' + items.length + ' kunjungan</div>'
-    + '</div><div class="ios-avatar' + (items.some(i => i.status !== 'Selesai') ? ' red' : '') + '">' + MI.tie + '</div></div>'
-    + '<div class="ios-toolbar">'
+  const nOpen = items.filter(i => pcvKind(i) === 'open').length;
+  const nProg = items.filter(i => pcvKind(i) === 'prog').length;
+  const nDone = items.filter(i => pcvKind(i) === 'done').length;
+  const anyOpen = (nOpen + nProg) > 0;
+
+  return '<div class="pcg-card">'
+    + '<div class="pcg-head"><div>'
+    + '<div class="pcg-title">PC</div>'
+    + '<div class="pcg-sub">' + pabrik + ' · ' + items.length + ' kunjungan · per lokasi</div>'
+    + '</div><div class="pcg-avatar' + (anyOpen ? ' red' : '') + '">' + MI.tie + '</div></div>'
+    + '<div class="pcg-stats">'
+    + '<div class="pcg-stat s-open" onclick="openPCVisitList(\'' + pabrik + '\',\'open\',null)"><b>' + nOpen + '</b><span>Open</span></div>'
+    + '<div class="pcg-stat s-prog" onclick="openPCVisitList(\'' + pabrik + '\',\'prog\',null)"><b>' + nProg + '</b><span>Progress</span></div>'
+    + '<div class="pcg-stat s-done" onclick="openPCVisitList(\'' + pabrik + '\',\'done\',null)"><b>' + nDone + '</b><span>Selesai</span></div>'
+    + '</div>'
+    + '<div class="pcg-legend"><span><i style="background:#ff8a8a"></i>Belum selesai</span><span><i style="background:#ebf2a3"></i>Selesai</span></div>'
+    + '<div class="pcg-chartbox" id="pcg-box-' + pabrik + '"><canvas id="pcg-chart-' + pabrik + '"></canvas></div>'
+    + '<div class="pcg-hint">Klik bar lokasi atau angka di atas untuk melihat daftar</div>'
+    + '<div class="pcg-toolbar">'
     + '<select id="pcv-month-' + pabrik + '" class="ios-select">' + monthOptions + '</select>'
     + '<button class="ios-btn" onclick="printPCVisitTable(\'' + pabrik + '\')">Download PDF</button>'
     + '<button class="ios-btn primary" onclick="exportPCVisitToExcel(\'' + pabrik + '\')">Download Excel</button>'
-    + '</div>'
-    + renderPCVisitTable(items, pabrik)
-    + '</div>';
+    + '</div></div>';
+}
+
+/** Gambar grafik bar horizontal bertumpuk (Belum selesai + Selesai) per lokasi */
+function drawPCVisitChart(pabrik){
+  const items = (window._pcVisitData && window._pcVisitData[pabrik]) || [];
+  const canvas = document.getElementById('pcg-chart-' + pabrik);
+  if(!canvas) return;
+
+  const byLok = {};
+  items.forEach(it => {
+    const lok = (it.lokasi && String(it.lokasi).trim()) || 'Tidak Diketahui';
+    if(!byLok[lok]) byLok[lok] = { open: 0, done: 0 };
+    if(it.status === 'Selesai') byLok[lok].done++; else byLok[lok].open++;
+  });
+  const labels = Object.keys(byLok).sort((a, b) => (byLok[b].open + byLok[b].done) - (byLok[a].open + byLok[a].done) || byLok[b].open - byLok[a].open);
+  if(!labels.length) return;
+
+  // tinggi dinamis: 34px per lokasi supaya tidak sempit
+  const h = Math.max(120, labels.length * 34 + 20);
+  const box = document.getElementById('pcg-box-' + pabrik);
+  if(box) box.style.height = h + 'px';
+
+  const totalBadge = {
+    id: 'pcgTotalBadge',
+    afterDatasetsDraw(chart){
+      const ctx = chart.ctx;
+      const mA = chart.getDatasetMeta(1);
+      const mB = chart.getDatasetMeta(0);
+      labels.forEach((lok, i) => {
+        const total = byLok[lok].open + byLok[lok].done;
+        const bar = (mA.data[i] && byLok[lok].done) ? mA.data[i] : mB.data[i];
+        if(!bar) return;
+        ctx.save();
+        ctx.fillStyle = '#ebf2a3';
+        ctx.font = "800 12px 'Miriam Libre', sans-serif";
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(String(total), bar.x + 8, bar.y);
+        ctx.restore();
+      });
+    }
+  };
+
+  safeChart('pcg-chart-' + pabrik, {
+    type: 'bar',
+    plugins: [totalBadge],
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Belum selesai', data: labels.map(l => byLok[l].open), backgroundColor: '#ff8a8a', borderRadius: 999, borderSkipped: false, stack: 's', maxBarThickness: 22 },
+        { label: 'Selesai',       data: labels.map(l => byLok[l].done), backgroundColor: '#ebf2a3', borderRadius: 999, borderSkipped: false, stack: 's', maxBarThickness: 22 }
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      maintainAspectRatio: false,
+      layout: { padding: { right: 30 } },
+      animation: { duration: 700, easing: 'easeOutQuart' },
+      onClick: (evt, els) => { if(els.length) openPCVisitList(pabrik, 'lokasi', labels[els[0].index]); },
+      onHover: (evt, els) => { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(255,255,255,.96)', titleColor: '#132b15', bodyColor: '#132b15', padding: 10, cornerRadius: 10,
+          titleFont: { family: WTP_FONT, weight: '700' }, bodyFont: { family: WTP_FONT },
+          callbacks: { label: c => ' ' + c.dataset.label + ': ' + c.parsed.x + ' temuan' },
+          afterBody: () => ['', 'Klik untuk lihat daftar']
+        }
+      },
+      scales: {
+        x: { stacked: true, display: false, grid: { display: false }, border: { display: false } },
+        y: { stacked: true, ticks: { font: { size: 11, weight: '600', family: WTP_FONT }, color: '#e3ead0' }, grid: { display: false }, border: { display: false } }
+      }
+    }
+  });
+}
+
+/** Buka daftar kunjungan PC (modal) berdasarkan klik grafik / angka. mode: 'open' | 'prog' | 'done' | 'lokasi' */
+function openPCVisitList(pabrik, mode, lokasi){
+  const all = (window._pcVisitData && window._pcVisitData[pabrik]) || [];
+  window._pcVisitItemsMap = window._pcVisitItemsMap || {};
+  all.forEach(it => { window._pcVisitItemsMap[pabrik + '_' + it.rowNumber] = it; });
+
+  const monthSel = document.getElementById('pcv-month-' + pabrik);
+  const month = monthSel ? monthSel.value : '';
+
+  let items = all.filter(it => !month || it.bulanLabel === month);
+  let title = 'Kunjungan PC — ' + pabrik;
+  if(mode === 'lokasi'){
+    items = items.filter(it => ((it.lokasi && String(it.lokasi).trim()) || 'Tidak Diketahui') === lokasi);
+    title = lokasi + ' — ' + pabrik;
+  } else {
+    items = items.filter(it => pcvKind(it) === mode);
+    title = { open: 'Open', prog: 'Progress', done: 'Selesai' }[mode] + ' — Kunjungan PC ' + pabrik;
+  }
+
+  document.getElementById('lapor-breakdown-title').innerText = title;
+  document.getElementById('lapor-breakdown-body').innerHTML =
+    '<p style="font-size:12px;color:var(--muted);margin-bottom:8px;">Total: <b>' + items.length + '</b> kunjungan' + (month ? ' · ' + month : '') + '</p>'
+    + renderPCVisitTable(items, pabrik);
+  document.getElementById('modal-lapor-breakdown').classList.add('show');
 }
 
 function renderPCVisitTable(items, pabrik){
@@ -2581,6 +2739,7 @@ function exportPCVisitToExcel(pabrik){
 function openPCVisitDetailByKey(key){
   const item = (window._pcVisitItemsMap || {})[key];
   if(!item) return;
+  // list tetap terbuka di belakang, detail muncul di atasnya
   openPCVisitDetailModal(item);
 }
 
@@ -2961,6 +3120,7 @@ function renderDashboardPabrikView(){
     }
 
     // ▼▼▼ area kunjungan manajemen (paling bawah, kondisional — VPM/CEO di atas, PC di bawah) ▼▼▼
+    html += '<div id="capex-dash-area"></div>';
     html += '<div id="vpmceo-visit-area"></div>';
     html += '<div id="pc-visit-area"></div>';
     // ▲▲▲ akhir ▲▲▲
@@ -3178,6 +3338,7 @@ function renderDashboardPabrikView(){
   }
 
   loadWtpSection(pabrikKeys);
+  cxDashLoad();
 
   // ── Notifikasi: admin/regional lihat pending review, KUYM/JLMM lihat status review ──
   loadDashboardNotifications();
@@ -8127,7 +8288,7 @@ function tvOpen(tipe, opt){
     + (efIsOp() ? '' : '<button class="ios-btn" onclick="ecOpen(TV.tipe,TV.pabrik,TV.unit)">📈 Grafik</button>')
     + '<button class="ios-btn" onclick="invalidateCache();tvLoad()">🔄</button>'
     + '<button class="ios-btn" onclick="tvPrint()">' + MI.download + 'Download</button></div>'
-    + '<div class="tv-hint">Periode baru = ' + (tipe === 'BOILER' ? 'ada jeda pengisian lebih dari 5 jam' : 'pergantian hari') + '. Cell merah = belum terisi, ketuk baris merah untuk mengisi.</div>'
+    + '<div class="tv-hint">Periode baru = ' + (tipe === 'BOILER' ? 'ada jeda pengisian lebih dari 5 jam' : 'pergantian hari') + '. Cell merah = belum terisi, klik baris merah untuk mengisi.</div>'
     + '<div id="tv-body"></div></div>';
   tvEl('tv-pabrik').value = TV.pabrik;
   tvLoad();
@@ -8915,5 +9076,407 @@ html,body{height:100%;min-height:100dvh;margin:0;overscroll-behavior:none;}
 .modal{max-height:92dvh !important;}
 .bottom-nav{padding-bottom:max(6px,env(safe-area-inset-bottom)) !important;}
 </style>
+<style>
+/* ===== CAPEX & NR ===== */
+.cx-hero{padding:16px !important;}
+.cx-hero-row{display:flex;align-items:center;gap:16px;}
+.cx-big{font-size:44px;font-weight:800;line-height:1;color:#ebf2a3;letter-spacing:-.02em;}
+.cx-big small{font-size:18px;opacity:.8;margin-left:2px;}
+.cx-cap{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.55);margin-top:6px;}
+.cx-list{flex:1;min-width:0;}
+.cx-list div{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.1);font-size:12px;color:rgba(255,255,255,.65);}
+.cx-list div:last-child{border-bottom:none;padding-bottom:0;}
+.cx-list div:first-child{padding-top:0;}
+.cx-list b{color:#fff;font-size:14px;white-space:nowrap;}
+.cx-list b.neg{color:#ff9b9b;} .cx-list b.pos{color:#ebf2a3;}
+.cx-counts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px;}
+.cx-cnt{background:rgba(255,255,255,.07);border-radius:14px;padding:10px 4px;text-align:center;cursor:pointer;border:1.5px solid transparent;}
+.cx-cnt.on{border-color:#ebf2a3;}
+.cx-cnt:active{opacity:.6;}
+.cx-cnt b{display:block;font-size:20px;line-height:1;color:#fff;}
+.cx-cnt span{display:block;font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;margin-top:5px;color:rgba(255,255,255,.55);}
+.cx-cnt.s-selesai b{color:#ebf2a3;} .cx-cnt.s-berjalan b{color:#e3a72f;} .cx-cnt.s-terlambat b{color:#ff9b9b;}
+.cx-biaya{margin-top:12px;font-size:11.5px;color:rgba(255,255,255,.6);text-align:center;}
+.cx-biaya b{color:#fff;}
+.cx-item{background:#fff;border-radius:16px;padding:12px 14px;margin-bottom:10px;border:1px solid rgba(19,43,21,.06);cursor:pointer;}
+.cx-item:active{background:#f3f7e6;}
+.cx-item.late{border-left:4px solid #d64545;}
+.cx-item-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+.cx-item-title{font-weight:800;font-size:13.5px;color:var(--text);line-height:1.3;}
+.cx-item-meta{font-size:11px;color:var(--muted);margin-top:3px;}
+.cx-bar{position:relative;height:9px;border-radius:99px;background:#e1e8cf;margin:10px 0 5px;overflow:visible;}
+.cx-bar i{display:block;height:100%;border-radius:99px;background:#315a2d;}
+.cx-bar.low i{background:#d64545;}
+.cx-bar b{position:absolute;top:-4px;width:3px;height:17px;border-radius:2px;background:#e3a72f;margin-left:-1px;}
+.cx-item-foot{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:var(--muted);}
+.cx-item-foot .bad{color:#d64545;}
+.cx-chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px;}
+.cx-chip{border:1.5px solid #d6dcc6;background:#fff;color:var(--green-dark);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;}
+.cx-chip.on{background:#132b15;color:#ebf2a3;border-color:#132b15;}
+.cx-info{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;margin-bottom:12px;}
+.cx-info div{font-size:12px;}
+.cx-info span{display:block;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
+.cx-info b{color:var(--green-dark);}
+.cx-form{background:#f3f6d6;border:1px solid rgba(19,43,21,.1);border-radius:16px;padding:12px;margin-top:14px;}
+.cx-form .field input,.cx-form .field select{background:#fff;}
+.mi-capex .ctop{animation:miFloat 2.2s ease-in-out infinite;}
+.pcg-pick{cursor:pointer;}
+.mi-capex .arr{animation:miRise 1.8s ease-in-out infinite;}
+@keyframes miRise{0%,100%{transform:translateY(1.5px);opacity:.5}50%{transform:translateY(-1.5px);opacity:1}}
+</style>
+
+<script>
+var CX = { unit:'', part:'ALL', filter:'ALL', data:null, items:{} };
+var CX_LBL = { selesai:'Selesai', terlambat:'Terlambat', berjalan:'Berjalan', belum:'Belum Mulai' };
+var CX_PILL = { selesai:'close', terlambat:'reject', berjalan:'on-progress', belum:'open' };
+var CX_ORD = { terlambat:0, berjalan:1, belum:2, selesai:3 };
+
+/* ikon bottom nav */
+MI.capex = '<span class="mi mi-capex"><svg ' + _MI_SVG + '><ellipse class="ctop" cx="12" cy="6" rx="7" ry="3"/>'
+  + '<path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/>'
+  + '<path class="arr" d="M12 12.5v-3M10.5 11l1.5-1.5 1.5 1.5" stroke-width="1.4"/></svg></span>';
+(function(){ var e = document.getElementById('nav-capex-ico'); if(e) e.innerHTML = MI.capex; })();
+
+function cxEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+function cxPct(v){ return v == null ? '—' : (Math.round(v * 10) / 10).toLocaleString('id-ID') + '%'; }
+function cxQty(n){ return n == null ? '—' : Number(n).toLocaleString('id-ID', { maximumFractionDigits:2 }); }
+function cxRp(n){
+  if(n == null) return '—';
+  var a = Math.abs(n);
+  if(a >= 1e9) return 'Rp ' + (n / 1e9).toLocaleString('id-ID', { maximumFractionDigits:2 }) + ' M';
+  if(a >= 1e6) return 'Rp ' + (n / 1e6).toLocaleString('id-ID', { maximumFractionDigits:1 }) + ' jt';
+  return 'Rp ' + Number(n).toLocaleString('id-ID');
+}
+
+function renderCapex(){
+  var area = document.getElementById('content-area');
+  if(!cacheHas('capex|' + CX.unit)) area.innerHTML = '<div class="section-title">Capex &amp; NR</div><div class="loading">Loading data capex...</div>';
+  cxLoad();
+}
+
+function cxLoad(cb){
+  var area = document.getElementById('content-area'), unit = CX.unit;
+  cachedCall('capex|' + unit, function(ok, bad){
+    google.script.run.withSuccessHandler(ok).withFailureHandler(bad).getCapexData(CURRENT_USER.email, unit);
+  }, function(res){
+    if(CURRENT_TAB !== 'capex') return;
+    if(!res || !res.success){ area.innerHTML = '<div class="section-title">Capex &amp; NR</div><div class="empty-state">' + cxEsc((res && res.message) || 'Gagal Loading') + '</div>'; return; }
+    CX.data = res; CX.unit = res.unit; CX.items = {};
+    (res.parts || []).forEach(function(p){ p.items.forEach(function(it){ CX.items[it.rowNumber] = it; }); });
+    cxDraw();
+    if(cb) cb();
+  }, function(e){
+    if(CURRENT_TAB === 'capex') area.innerHTML = '<div class="section-title">Capex &amp; NR</div><div class="empty-state">Gagal Loading: ' + cxEsc(e.message) + '</div>';
+  });
+}
+
+function cxGo(u){ CX.unit = u; CX.part = 'ALL'; CX.filter = 'ALL'; goTo('capex'); }
+
+function cxDashLoad(){
+  var area = document.getElementById('capex-dash-area');
+  if(!area) return;
+  var r = CURRENT_USER.role;
+  var units = r === 'JLMM' ? ['JLMM'] : (r === 'KUYM' ? ['KUYM', 'KUYZ'] : ['JLMM', 'KUYM', 'KUYZ']);
+  var got = {}, left = units.length;
+  units.forEach(function(u){
+    cachedCall('capex|' + u, function(ok, bad){
+      google.script.run.withSuccessHandler(ok).withFailureHandler(bad).getCapexData(CURRENT_USER.email, u);
+    }, function(res){ got[u] = res; if(--left === 0) cxDashDraw(units, got); },
+       function(){ got[u] = null; if(--left === 0) cxDashDraw(units, got); });
+  });
+}
+
+function cxDashDraw(units, got){
+  var area = document.getElementById('capex-dash-area');
+  if(!area) return;
+  var list = [];
+  units.forEach(function(u){
+    var d = got[u];
+    if(d && d.success && d.overall) list.push({ u:u, s:d.overall.summary });
+  });
+  if(!list.length){ area.innerHTML = ''; return; }
+  var h = '<div class="section-divider monitoring">Capex &amp; NR</div><div class="lapor-card-row">';
+  list.forEach(function(x){
+    var s = x.s, bad = s.gapDeadline < 0;
+    h += '<div class="lapor-sub-card dark-card tone-gold" style="cursor:pointer;" onclick="cxGo(\'' + x.u + '\')">'
+      + '<div class="lapor-sub-card-title">' + x.u + ' · Progress Capex ›</div>'
+      + '<div class="donut-wrap"><div class="cx-pie-wrap"><canvas id="cx-dash-' + x.u + '"></canvas></div>'
+      + '<div class="donut-legend" style="margin-top:10px;">'
+      + '<span><span class="dot" style="background:#132b15"></span>Aktual: ' + Math.round(s.avgPct) + '%</span>'
+      + '<span><span class="dot" style="background:' + (bad ? '#d64545' : '#e3a72f') + '"></span>Rencana: ' + cxPct(s.rencanaDeadlineNow) + '</span>'
+      + '</div>'
+      + '<div class="cx-pie-sub">Selesai ' + s.selesai + ' / ' + s.total + ' item</div></div></div>';
+  });
+  area.innerHTML = h + '</div>';
+  var cxPieLabel = {
+    id: 'cxPieLabel',
+    afterDatasetsDraw: function(chart){
+      var arc = chart.getDatasetMeta(0).data[0];
+      var v = chart.data.datasets[0].data[0];
+      if(!arc || v < 6) return;                           // irisan terlalu kecil -> label disembunyikan
+      var p = arc.tooltipPosition(), ctx = chart.ctx;
+      ctx.save();
+      ctx.fillStyle = '#ebf2a3';
+      ctx.font = "800 15px 'Miriam Libre', sans-serif";
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(Math.round(v) + '%', p.x, p.y);
+      ctx.restore();
+    }
+  };
+  list.forEach(function(x){
+    var a = Math.max(0, Math.min(100, x.s.avgPct || 0));
+    var r = Math.max(0, Math.min(100, x.s.rencanaDeadlineNow || 0));
+    var gap = Math.max(0, r - a);                         // kekurangan dari rencana
+    var sisa = Math.max(0, 100 - a - gap);
+    var gapColor = gap > 0 ? '#d64545' : '#e3a72f';       // sama dengan warna titik legend "Rencana"
+    safeChart('cx-dash-' + x.u, {
+      type: 'pie',
+      plugins: [cxPieLabel],
+      data: {
+        labels: ['Aktual', 'Kurang dari rencana', 'Sisa'],
+        datasets: [{
+          data: [a, gap, sisa],
+          backgroundColor: ['#132b15', gapColor, 'rgba(19,43,21,.14)'],
+          borderColor: '#f3f6d6',
+          borderWidth: 3,
+          borderRadius: 6,
+          hoverOffset: 6
+        }]
+      },
+      options: {
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(19,43,21,.95)', padding: 10, cornerRadius: 10,
+            titleFont: { family: WTP_FONT, weight: '700' }, bodyFont: { family: WTP_FONT },
+            callbacks: { label: function(c){ return ' ' + c.label + ': ' + c.parsed.toFixed(1) + '%'; } }
+          }
+        },
+        onClick: function(){ cxGo(x.u); }
+      }
+    });
+  });
+}
+
+function cxSetUnit(u){ CX.unit = u; CX.part = 'ALL'; CX.filter = 'ALL'; renderCapex(); }
+function cxSetPart(k){ CX.part = k; CX.filter = 'ALL'; cxDraw(); }
+function cxSetFilter(f){ CX.filter = (CX.filter === f) ? 'ALL' : f; cxDraw(); }
+
+function cxDraw(){
+  var d = CX.data, E = cxEsc, area = document.getElementById('content-area'), parts = d.parts || [];
+  var h = '<div class="section-title">Capex &amp; NR ' + d.year + '</div>';
+
+  if(d.units && d.units.length > 1){
+    h += '<div class="pabrik-tabs">' + d.units.map(function(u){
+      return '<button class="' + (u === d.unit ? 'active' : '') + '" onclick="cxSetUnit(\'' + u + '\')">' + u + '</button>';
+    }).join('') + '</div>';
+  }
+  if(!parts.length){
+    area.innerHTML = h + '<div class="empty-state">Belum ada item Capex / NR untuk ' + E(d.unit) + '.</div>';
+    return;
+  }
+
+  if(parts.length === 1) CX.part = parts[0].key;
+  else if(CX.part !== 'ALL' && !parts.some(function(p){ return p.key === CX.part; })) CX.part = 'ALL';
+
+  if(parts.length > 1){
+    h += '<div class="wtp-tabs"><button class="wtp-tab-btn' + (CX.part === 'ALL' ? ' active' : '') + '" onclick="cxSetPart(\'ALL\')">Total</button>'
+      + parts.map(function(p){
+          return '<button class="wtp-tab-btn' + (CX.part === p.key ? ' active' : '') + '" onclick="cxSetPart(\'' + p.key + '\')">' + p.key + ' · ' + E(p.title) + ' (' + p.count + ')</button>';
+        }).join('') + '</div>';
+  }
+
+  var view, items;
+  if(CX.part === 'ALL'){ view = d.overall; items = [].concat.apply([], parts.map(function(p){ return p.items; })); }
+  else { view = parts.filter(function(p){ return p.key === CX.part; })[0]; items = view.items; }
+  var s = view.summary, gap = s.gapBudget, cur = d.currentMonth;
+
+  /* ---- ringkasan ---- */
+  h += '<div class="card dark-card tone-forest cx-hero"><div class="cx-hero-row">'
+    + '<div class="util-ringwrap" style="width:118px;height:118px;cursor:default;">'
+    + '<svg viewBox="0 0 100 100" class="util-ring">'
+    + '<circle cx="50" cy="50" r="42" class="rt"/>'
+    + '<circle cx="50" cy="50" r="42" class="rf f-' + (gap < 0 ? 'red' : 'green') + '" stroke-dasharray="263.9" stroke-dashoffset="' + (263.9 * (1 - Math.min(100, s.avgPct) / 100)).toFixed(1) + '" transform="rotate(-90 50 50)"/>'
+    + '<circle cx="50" cy="50" r="30" class="rt" style="stroke-width:4;"/>'
+    + '<circle cx="50" cy="50" r="30" class="rf" style="stroke-width:4;stroke:#e3a72f;" stroke-dasharray="188.5" stroke-dashoffset="' + (188.5 * (1 - Math.min(100, s.rencanaDeadlineNow || 0) / 100)).toFixed(1) + '" transform="rotate(-90 50 50)"/></svg>'
+    + '<div class="util-ringtxt"><div class="util-big t-' + (gap < 0 ? 'red' : 'green') + '">' + Math.round(s.avgPct) + '<small>%</small></div><div class="util-mon">Aktual</div></div></div>'
+    + '<div class="cx-list">'
+    + '<div><span>Rencana bulan ini</span><b style="color:#e3a72f;">' + cxPct(s.rencanaDeadlineNow) + '</b></div>'
+    + '<div><span>Selisih vs rencana</span><b class="' + (gap < 0 ? 'neg' : 'pos') + '">' + (gap > 0 ? '+' : '') + cxPct(gap) + '</b></div>'
+    + '<div><span>Item selesai</span><b>' + s.selesai + ' / ' + s.total + '</b></div>'
+    + '</div></div>'
+    + '<div class="cx-counts">'
+    + ['selesai','berjalan','terlambat','belum'].map(function(k){
+        return '<div class="cx-cnt s-' + k + (CX.filter === k ? ' on' : '') + '" onclick="cxSetFilter(\'' + k + '\')"><b>' + s[k] + '</b><span>' + CX_LBL[k] + '</span></div>';
+      }).join('')
+    + '</div>'
+    + '</div>';
+
+  /* ---- grafik ---- */
+  h += '<div class="card dark-card tone-forest"><div class="dc-title">Rencana vs Aktual (% kumulatif)</div>'
+    + '<div style="height:250px;position:relative;"><canvas id="cx-chart"></canvas></div></div>';
+
+  /* ---- rincian per bulan ---- */
+  h += '<div class="section-divider monitoring">Rincian per Bulan</div>'
+    + '<div class="lapor-table-wrap"><table class="lapor-table"><thead><tr><th>Bulan</th><th>Rencana</th><th>Aktual</th><th>Selisih</th><th>Jatuh Tempo</th></tr></thead><tbody>';
+  view.rincian.forEach(function(r, m){
+    var cls = '';
+    if(r.aktual !== null && r.selisih !== null) cls = r.selisih < 0 ? 'row-open' : 'row-close';
+    h += '<tr class="' + cls + '" onclick="cxMonthDetail(' + m + ')">'
+      + '<td style="font-weight:' + (m === cur ? '800' : '600') + ';">' + E(r.bulan) + (m === cur ? ' •' : '') + '</td>'
+      + '<td>' + cxPct(r.rencanaDeadline) + '</td>'
+      + '<td style="font-weight:800;">' + cxPct(r.aktual) + '</td>'
+      + '<td style="font-weight:800;color:' + (r.selisih === null ? 'inherit' : (r.selisih < 0 ? '#b42318' : '#1f6b2c')) + ';">' + (r.selisih === null ? '—' : (r.selisih > 0 ? '+' : '') + cxPct(r.selisih)) + '</td>'
+      + '<td>' + (r.jatuhTempo ? r.jatuhTempoSelesai + ' / ' + r.jatuhTempo + ' selesai' : '—') + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  /* ---- daftar item ---- */
+  var list = items.filter(function(it){ return CX.filter === 'ALL' || it.status === CX.filter; });
+  list.sort(function(a, b){ return (CX_ORD[a.status] - CX_ORD[b.status]) || (a.rowNumber - b.rowNumber); });
+  h += '<div class="section-divider monitoring">Detail Item (' + list.length + ')</div>';
+  if(CX.filter !== 'ALL') h += '<div class="cx-chips"><button class="cx-chip on" onclick="cxSetFilter(\'ALL\')">Filter: ' + CX_LBL[CX.filter] + ' ✕</button></div>';
+  if(!list.length) h += '<div class="empty-state">Tidak ada item pada kategori ini.</div>';
+  list.forEach(function(it){
+    var pct = it.pct == null ? 0 : it.pct;
+    h += '<div class="cx-item' + (it.status === 'terlambat' ? ' late' : '') + '" onclick="cxOpenItem(' + it.rowNumber + ')">'
+      + '<div class="cx-item-top"><div class="cx-item-title">' + E(it.jenis) + '</div><span class="status-pill ' + CX_PILL[it.status] + '">' + CX_LBL[it.status] + '</span></div>'
+      + '<div class="cx-item-meta">' + (it.deadline ? 'Deadline ' + E(it.deadline) : 'Deadline belum diisi') + ' · Qty ' + cxQty(it.qty) + (it.po ? ' · PO ' + E(it.po) : '') + '</div>'
+      + '<div class="cx-bar' + (it.behind ? ' low' : '') + '"><i style="width:' + Math.min(100, pct) + '%"></i>' + (it.planNow ? '<b style="left:' + Math.min(100, it.planNow) + '%"></b>' : '') + '</div>'
+      + '<div class="cx-item-foot"><span class="' + (it.behind ? 'bad' : '') + '">Aktual ' + cxPct(it.pct) + '</span><span>Rencana ' + cxPct(it.planNow) + '</span></div></div>';
+  });
+
+  area.innerHTML = h;
+  cxChart(view);
+}
+
+function cxChart(view){
+  var c = view.chart, tick = 'rgba(255,255,255,.7)';
+  var badge = { id:'cxBadge', afterDatasetsDraw:function(ch){
+    var ctx = ch.ctx, meta = ch.getDatasetMeta(0);
+    meta.data.forEach(function(b, i){
+      var v = ch.data.datasets[0].data[i];
+      if(v === null || v === undefined) return;
+      ctx.save(); ctx.fillStyle = '#ebf2a3'; ctx.font = '800 10px ' + WTP_FONT;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(Math.round(v) + '%', b.x, b.y - 9); ctx.restore();
+    });
+  }};
+  safeChart('cx-chart', {
+    type: 'bar',
+    plugins: [badge],
+    data: { labels: c.labels, datasets: [
+      { label:'Aktual', data:c.aktual, backgroundColor:'#ebf2a3', borderRadius:999, borderSkipped:false, maxBarThickness:20, order:2 },
+      { type:'line', label:'Rencana', data:c.rencanaDeadline, borderColor:'#e3a72f', backgroundColor:'#e3a72f', borderWidth:2.5,
+        pointRadius:3, pointBackgroundColor:'#e3a72f', tension:.3, spanGaps:true, order:1 }
+    ] },
+    options: {
+      maintainAspectRatio:false, layout:{ padding:{ top:14 } },
+      animation:{ duration:800, easing:'easeOutQuart' },
+      interaction:{ mode:'index', intersect:false },
+      plugins: {
+        legend:{ position:'bottom', labels:{ color:'#fff', usePointStyle:true, pointStyle:'circle', boxWidth:8, padding:14, font:{ family:WTP_FONT, size:11, weight:'700' } } },
+        tooltip:{ backgroundColor:'rgba(255,255,255,.96)', titleColor:'#132b15', bodyColor:'#132b15', padding:10, cornerRadius:10,
+          titleFont:{ family:WTP_FONT, weight:'700' }, bodyFont:{ family:WTP_FONT },
+          callbacks:{ label:function(x){ return x.parsed.y == null ? null : ' ' + x.dataset.label + ': ' + x.parsed.y.toFixed(1) + '%'; } } }
+      },
+      scales: {
+        x:{ ticks:{ color:tick, font:{ size:10, weight:'600', family:WTP_FONT } }, grid:{ display:false }, border:{ display:false } },
+        y:{ display:false, min:0, max:120, grid:{ display:false }, border:{ display:false } }
+      }
+    }
+  });
+}
+
+/* ---- detail jatuh tempo per bulan ---- */
+function cxMonthDetail(m){
+  var d = CX.data, E = cxEsc, parts = d.parts;
+  var view = CX.part === 'ALL' ? d.overall : parts.filter(function(p){ return p.key === CX.part; })[0];
+  var r = view.rincian[m];
+  var h = '<div class="cx-info"><div><span>Rencana</span><b>' + cxPct(r.rencanaDeadline) + '</b></div>'
+    + '<div><span>Aktual</span><b>' + cxPct(r.aktual) + '</b></div>'
+    + '<div><span>Phasing</span><b>' + cxPct(r.rencanaDeadline) + '</b></div>'
+    + '<div><span>Naik bulan ini</span><b>' + cxPct(r.incAktual) + ' (rencana ' + cxPct(r.incRencana) + ')</b></div></div>';
+  if(r.dueItems.length){
+    h += '<div class="finding-group-title">Jatuh tempo di ' + E(r.bulan) + ' (' + r.dueItems.length + ')</div>';
+    r.dueItems.forEach(function(x){
+      h += '<div class="ios-ls-row"><span>' + E(x.jenis) + '</span><span><b>' + cxPct(x.pct) + '</b> <span class="status-pill ' + CX_PILL[x.status] + '" style="margin-left:4px;">' + CX_LBL[x.status] + '</span></span></div>';
+    });
+  } else h += '<div class="empty-state">Tidak ada item yang jatuh tempo di bulan ini.</div>';
+  _openGenericDetail('Capex — ' + r.bulan + ' ' + d.year, h);
+}
+
+/* ---- detail item + form isi progress ---- */
+function cxOpenItem(row){
+  var it = CX.items[row], d = CX.data, E = cxEsc;
+  if(!it) return;
+  var cur = d.currentMonth, defM = cur >= 0 ? cur : 0;
+  var partTitle = (d.parts.filter(function(p){ return p.key === it.part; })[0] || {}).title || '';
+  var h = '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:10px;">'
+    + '<div style="font-weight:800;font-size:15px;color:var(--green-dark);">' + E(it.jenis) + '</div>'
+    + '<span class="status-pill ' + CX_PILL[it.status] + '">' + CX_LBL[it.status] + '</span></div>'
+    + '<div class="cx-info">'
+    + '<div><span>Part</span><b>' + it.part + ' · ' + E(partTitle) + '</b></div>'
+    + '<div><span>Deadline</span><b>' + E(it.deadline || '—') + '</b></div>'
+    + '<div><span>No PR</span><b>' + E(it.pr || '—') + '</b></div>'
+    + '<div><span>No PO</span><b>' + E(it.po || '—') + '</b></div>'
+    + '<div><span>Target Qty</span><b>' + cxQty(it.qty) + '</b></div>'
+    + '<div><span>Terealisasi</span><b>' + cxQty(it.cumQty) + ' (' + cxPct(it.pct) + ')</b></div>'
+    + '<div><span>Sisa</span><b>' + (it.qty == null ? '—' : cxQty(Math.max(0, it.qty - (it.cumQty || 0)))) + '</b></div>'
+    + '<div><span>Rencana saat ini</span><b>' + cxPct(it.planNow) + '</b></div>'
+    + (it.keterangan ? '<div style="grid-column:1/-1;"><span>Keterangan</span><b>' + E(it.keterangan) + '</b></div>' : '')
+    + '</div>';
+
+  h += '<div class="lapor-table-wrap"><table class="lapor-table"><thead><tr><th>Bulan</th><th>Aktual (qty)</th><th>Rencana %</th><th>Aktual %</th></tr></thead><tbody>';
+  for(var m = 0; m < 12; m++){
+    var late = it.cumPct[m] != null && it.planBudgetPct[m] != null && m <= cur && it.cumPct[m] < it.planBudgetPct[m] - 0.05;
+    h += '<tr style="cursor:default;" class="' + (m <= cur && it.act[m] !== null ? (late ? 'row-open' : 'row-close') : '') + '"><td style="font-weight:700;">' + E(CX_BULAN_S[m]) + '</td>'
+      + '<td style="font-weight:800;">' + cxQty(it.act[m]) + '</td>'
+      + '<td>' + cxPct(it.planBudgetPct[m]) + '</td><td style="font-weight:800;">' + (it.act[m] !== null || m <= cur ? cxPct(it.cumPct[m]) : '—') + '</td></tr>';
+  }
+  h += '</tbody></table></div>';
+  h += '<p style="font-size:11px;color:var(--muted);margin:6px 0 0;">Rencana dihitung dari bulan phasing (deadline).</p>';
+
+  if(d.canEdit){
+    var opts = '';
+    for(var k = 0; k < 12; k++) opts += '<option value="' + k + '"' + (k === defM ? ' selected' : '') + '>' + CX_BULAN_F[k] + (it.act[k] !== null ? ' •' : '') + '</option>';
+    h += '<div class="cx-form"><div style="font-weight:800;color:var(--green-dark);margin-bottom:8px;">Isi Progress</div>'
+      + '<div class="field"><label>Bulan</label><select id="cx-month" onchange="cxPrefill(' + row + ')">' + opts + '</select></div>'
+      + '<div class="field"><label>' + (d.mode === 'cumulative' ? 'Total progress kumulatif sampai bulan ini (qty)' : 'Progress yang dikerjakan pada bulan ini (qty)') + '</label>'
+      + '<input type="number" step="any" inputmode="decimal" id="cx-val" placeholder="Contoh: 2"></div>'
+      + '<div style="font-size:10.5px;color:var(--muted);margin:-6px 0 8px;">Kosongkan lalu Save untuk menghapus isian bulan tersebut.</div>'
+      + '<div id="cx-msg"></div><button class="btn" onclick="cxSave(' + row + ')">Save Progress</button></div>';
+  }
+  _openGenericDetail('Capex ' + d.unit + ' — Baris ' + row, h);
+  if(d.canEdit) cxPrefill(row);
+}
+
+var CX_BULAN_S = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+var CX_BULAN_F = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+function cxPrefill(row){
+  var it = CX.items[row], sel = document.getElementById('cx-month'), inp = document.getElementById('cx-val');
+  if(!it || !sel || !inp) return;
+  var v = it.act[+sel.value];
+  inp.value = (v === null || v === undefined) ? '' : v;
+}
+
+function cxSave(row){
+  var msg = document.getElementById('cx-msg'), m = +document.getElementById('cx-month').value;
+  var v = document.getElementById('cx-val').value.trim();
+  if(v !== '' && (isNaN(Number(v)) || Number(v) < 0)){ msg.innerHTML = '<div class="msg error">Isi dengan angka (0 atau lebih)</div>'; return; }
+  msg.innerHTML = '<div class="msg success">Saving...</div>';
+  google.script.run.withSuccessHandler(function(res){
+    msg.innerHTML = '<div class="msg ' + (res.success ? 'success' : 'error') + '">' + cxEsc(res.message) + '</div>';
+    if(res.success){
+      showToast('✅ ' + res.message);
+      setTimeout(function(){ cxLoad(function(){ cxOpenItem(row); }); }, 500);
+    }
+  }).withFailureHandler(function(e){
+    msg.innerHTML = '<div class="msg error">Gagal: ' + cxEsc(e.message) + '</div>';
+  }).updateCapexProgress({ email:CURRENT_USER.email, unit:CX.data.unit, rowNumber:row, monthIndex:m, value:v });
+}
+</script>
 </body>
 </html>
