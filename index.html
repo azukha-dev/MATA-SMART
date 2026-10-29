@@ -9151,6 +9151,17 @@ MI.capex = '<span class="mi mi-capex"><svg ' + _MI_SVG + '><ellipse class="ctop"
 (function(){ var e = document.getElementById('nav-capex-ico'); if(e) e.innerHTML = MI.capex; })();
 
 function cxEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+/* Buang cache client khusus Capex supaya edit manual di sheet langsung terbaca */
+function cxFresh(){
+  try{
+    Object.keys(window._dataCache).forEach(function(k){ if(k.indexOf('capex|') === 0) delete window._dataCache[k]; });
+    for(var i = localStorage.length - 1; i >= 0; i--){
+      var k2 = localStorage.key(i);
+      if(k2 && k2.indexOf('mata_c2|') === 0 && k2.indexOf('|capex|') !== -1) localStorage.removeItem(k2);
+    }
+  }catch(e){}
+}
 function cxPct(v){ return v == null ? '—' : (Math.round(v * 10) / 10).toLocaleString('id-ID') + '%'; }
 function cxQty(n){ return n == null ? '—' : Number(n).toLocaleString('id-ID', { maximumFractionDigits:2 }); }
 function cxRp(n){
@@ -9163,7 +9174,8 @@ function cxRp(n){
 
 function renderCapex(){
   var area = document.getElementById('content-area');
-  if(!cacheHas('capex|' + CX.unit)) area.innerHTML = '<div class="section-title">Capex &amp; NR</div><div class="loading">Loading data capex...</div>';
+  cxFresh();
+  area.innerHTML = '<div class="section-title">Capex &amp; NR</div><div class="loading">Loading data capex...</div>';
   cxLoad();
 }
 
@@ -9190,6 +9202,7 @@ function cxDashLoad(){
   if(!area) return;
   var r = CURRENT_USER.role;
   var units = r === 'JLMM' ? ['JLMM'] : (r === 'KUYM' ? ['KUYM', 'KUYZ'] : ['JLMM', 'KUYM', 'KUYZ']);
+  cxFresh();
   var got = {}, left = units.length;
   units.forEach(function(u){
     cachedCall('capex|' + u, function(ok, bad){
