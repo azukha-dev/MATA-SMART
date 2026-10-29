@@ -2056,6 +2056,7 @@ function cachedCall(cacheKey, fetchFn, onSuccess, onError){
 function prefetchAll(){
   if(!CURRENT_USER) return;
   if(String(CURRENT_USER.posisi || '').toLowerCase().indexOf('operator') !== -1) return;
+  if(CURRENT_USER.role === 'ISV') return;
   var email = CURRENT_USER.email, role = CURRENT_USER.role;
   var pabriks = (role === 'ADMIN' || role === 'REGIONAL' || role === 'PSM') ? ['JLMM', 'KUYM'] : [CURRENT_USER.pabrik];
   var noop = function(){}, jobs = [];
@@ -2442,7 +2443,15 @@ function enterApp(){
       if (naveForm) naveForm.style.display = (isVpmOrPc && !eForm_VISIBLE_FOR_VPM_PC) ? 'none' : 'flex';
     }
 
-    goTo(isOperator ? 'eForm' : 'dashboard');
+    if (CURRENT_USER.role === 'ISV') {
+      if (appEl) appEl.classList.add('app-no-bottomnav');
+      ['nav-dashboard','nav-monitoring','nav-capex','nav-eForm','nav-lapor'].forEach(function(id){
+        var b = document.getElementById(id); if(b) b.style.display = 'none';
+      });
+      goTo('isv');
+    } else {
+      goTo(isOperator ? 'eForm' : 'dashboard');
+    }
   } catch(e) {
     console.error('enterApp nav error:', e);
     // fallback: tetap coba render dashboard supaya layar tidak blank
@@ -2471,6 +2480,7 @@ function checkAssistantAppreciation(){
 
 function goTo(tab){
   if (tab === 'lapor' && CURRENT_USER.role === 'PSM') { tab = 'dashboard'; }
+  if (CURRENT_USER.role === 'ISV') { tab = 'isv'; }
   const posisiLcGoTo = String(CURRENT_USER.posisi || '').toLowerCase();
   if (posisiLcGoTo.indexOf('operator') !== -1 && tab !== 'eForm') { tab = 'eForm'; }
   CURRENT_TAB = tab;
@@ -2483,6 +2493,7 @@ function goTo(tab){
   else if(tab === 'eForm') rendereFormMenu();
   else if(tab === 'lapor') renderLapor();
   else if(tab === 'capex') renderCapex();
+  else if(tab === 'isv') renderIsv();
 }
 
 
@@ -3126,6 +3137,7 @@ function renderDashboardPabrikView(){
     // ▲▲▲ akhir ▲▲▲
   }
 
+  html += '<div id="isv-dash-area"></div>';
   area.innerHTML = html;
   loadTopCardsArea(pabrikKeys);
 
@@ -3339,6 +3351,7 @@ function renderDashboardPabrikView(){
 
   loadWtpSection(pabrikKeys);
   cxDashLoad();
+  isvDashLoad();
 
   // ── Notifikasi: admin/regional lihat pending review, KUYM/JLMM lihat status review ──
   loadDashboardNotifications();
@@ -9476,6 +9489,283 @@ function cxSave(row){
   }).withFailureHandler(function(e){
     msg.innerHTML = '<div class="msg error">Gagal: ' + cxEsc(e.message) + '</div>';
   }).updateCapexProgress({ email:CURRENT_USER.email, unit:CX.data.unit, rowNumber:row, monthIndex:m, value:v });
+}
+</script>
+<style>
+/* ===== ISV ===== */
+.cx-form textarea{width:100%;min-height:90px;border-radius:10px;border:1px solid #dde3dd;padding:10px;font-size:13px;box-sizing:border-box;background:#fff;}
+.cx-item-title{word-break:break-word;}
+.cx-cnt.s-belum b{color:#fff;}
+.isv-sec{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:14px 2px 6px;}
+.isv-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;}
+.isv-row .pcg-card{flex:1 1 0;min-width:150px;margin-bottom:0;cursor:pointer;}
+.isv-row .pcg-stats{grid-template-columns:repeat(2,1fr);margin:12px 0 0;}
+.isv-row .pcg-stat.s-none b{color:#fff;}
+.isv-pie{position:relative;width:150px;height:150px;margin:6px auto 0;}
+.isv-pie canvas{max-width:150px !important;max-height:150px !important;cursor:pointer;}
+.isv-fu-text{font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
+</style>
+
+<script>
+var ISV = { tab:'', filter:'ALL', data:null, sel:null };
+var ISV_LBL = { belum:'Open', berjalan:'On Progress', terlambat:'Terlambat', selesai:'Selesai' };
+var ISV_PILL = { belum:'open', berjalan:'on-progress', terlambat:'reject', selesai:'close' };
+var ISV_ORD = { terlambat:0, berjalan:1, belum:2, selesai:3 };
+var ISV_FOTO = { unit:null, verif:null };
+
+function isvEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+function isvTodayISO(){ var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+function isvSum(items){
+  var s = { total:items.length, belum:0, berjalan:0, terlambat:0, selesai:0 };
+  items.forEach(function(i){ s[i.status]++; });
+  s.pct = s.total ? Math.round(s.selesai / s.total * 100) : 0;
+  return s;
+}
+function isvDaysLeft(iso){
+  if(!iso) return null;
+  var p = iso.split('-'), d = new Date(+p[0], +p[1] - 1, +p[2]), t = new Date();
+  t = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+  return Math.round((d - t) / 864e5);
+}
+function isvLoad(ok, fail){
+  cachedCall('isv2', function(cb, bad){
+    google.script.run.withSuccessHandler(cb).withFailureHandler(bad).getIsvData(CURRENT_USER.email);
+  }, function(res){
+    if(!res || !res.success){ fail((res && res.message) || 'Gagal Loading'); return; }
+    ISV.data = res; ok(res);
+  }, function(e){ fail(e.message); });
+}
+function isvGo(pabrik, filter){
+  ISV.tab = pabrik; ISV.filter = filter || 'ALL'; ISV.sel = null;
+  goTo('isv');
+}
+
+/* ---------- DASHBOARD: card hijau gaya PC + pie ---------- */
+function isvDashLoad(){
+  var area = document.getElementById('isv-dash-area');
+  if(!area) return;
+  isvLoad(isvDashDraw, function(){ area.innerHTML = ''; });
+}
+
+function isvDashDraw(res){
+  var area = document.getElementById('isv-dash-area');
+  if(!area || CURRENT_TAB !== 'dashboard') return;
+  var list = res.pabriks.filter(function(p){ return res.data[p] && res.data[p].items.length; });
+  if(!list.length){ area.innerHTML = ''; return; }
+
+  var C = { selesai:'#ebf2a3', berjalan:'#e3a72f', terlambat:'#ff8a8a', belum:'rgba(255,255,255,.22)' };
+  var KEYS = ['selesai', 'berjalan', 'terlambat', 'belum'];
+  var h = '<div class="section-divider monitoring">ISV</div><div class="isv-row">';
+  list.forEach(function(p){
+    var s = isvSum(res.data[p].items);
+    function st(k, cls, lbl){
+      return '<div class="pcg-stat ' + cls + '" onclick="event.stopPropagation();isvGo(\'' + p + '\',\'' + k + '\')"><b>' + s[k] + '</b><span>' + lbl + '</span></div>';
+    }
+    h += '<div class="pcg-card" onclick="isvGo(\'' + p + '\',null)">'
+      + '<div class="pcg-head"><div><div class="pcg-title">ISV</div>'
+      + '<div class="pcg-sub">' + p + ' · ' + s.total + ' temuan · ' + s.pct + '% selesai</div></div>'
+      + '<div class="pcg-avatar' + (s.terlambat ? ' red' : '') + '">' + MI.clip + '</div></div>'
+      + '<div class="isv-pie"><canvas id="isv-pie-' + p + '"></canvas></div>'
+      + '<div class="pcg-stats">'
+      + st('selesai', 's-done', 'Selesai') + st('berjalan', 's-prog', 'Progress')
+      + st('terlambat', 's-open', 'Terlambat') + st('belum', 's-none', 'Open')
+      + '</div>'
+      + '<div class="pcg-hint">Klik irisan atau angka untuk membuka halaman ISV</div></div>';
+  });
+  area.innerHTML = h + '</div>';
+
+  var pieLabel = {
+    id: 'isvPieLabel',
+    afterDatasetsDraw: function(chart){
+      var arc = chart.getDatasetMeta(0).data[0], d = chart.data.datasets[0].data;
+      var tot = d.reduce(function(a, b){ return a + b; }, 0);
+      if(!arc || !tot) return;
+      var pct = Math.round(d[0] / tot * 100);
+      if(pct < 6) return;
+      var pos = arc.tooltipPosition(), ctx = chart.ctx;
+      ctx.save();
+      ctx.fillStyle = '#132b15';
+      ctx.font = "800 15px 'Miriam Libre', sans-serif";
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(pct + '%', pos.x, pos.y);
+      ctx.restore();
+    }
+  };
+  list.forEach(function(p){
+    var s = isvSum(res.data[p].items);
+    safeChart('isv-pie-' + p, {
+      type: 'pie',
+      plugins: [pieLabel],
+      data: {
+        labels: ['Selesai', 'On Progress', 'Terlambat', 'Open'],
+        datasets: [{
+          data: KEYS.map(function(k){ return s[k]; }),
+          backgroundColor: KEYS.map(function(k){ return C[k]; }),
+          borderColor: '#132b15', borderWidth: 3, borderRadius: 6, hoverOffset: 6
+        }]
+      },
+      options: {
+        maintainAspectRatio: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(255,255,255,.96)', titleColor: '#132b15', bodyColor: '#132b15', padding: 10, cornerRadius: 10,
+            titleFont: { family: WTP_FONT, weight: '700' }, bodyFont: { family: WTP_FONT },
+            callbacks: { label: function(c){ return ' ' + c.label + ': ' + c.parsed + ' temuan'; } }
+          }
+        },
+        onClick: function(evt, els){ isvGo(p, els.length ? KEYS[els[0].index] : null); }
+      }
+    });
+  });
+}
+
+/* ---------- HALAMAN ISV (daftar) ---------- */
+function renderIsv(){
+  var area = document.getElementById('content-area');
+  if(!cacheHas('isv2')) area.innerHTML = '<div class="section-title">ISV</div><div class="loading">Loading data ISV...</div>';
+  isvLoad(function(){ if(CURRENT_TAB === 'isv') (ISV.sel ? isvOpen(ISV.sel) : isvDrawList()); }, function(m){
+    area.innerHTML = '<div class="section-title">ISV</div><div class="empty-state">' + isvEsc(m) + '</div>';
+  });
+}
+function isvSetTab(p){ ISV.tab = p; ISV.filter = 'ALL'; ISV.sel = null; isvDrawList(); }
+function isvSetFilter(f){ ISV.filter = (ISV.filter === f) ? 'ALL' : f; isvDrawList(); }
+function isvBack(){ ISV.sel = null; isvDrawList(); }
+
+function isvCard(it){
+  var dl = isvDaysLeft(it.deadlineISO), right = '';
+  if(it.status !== 'selesai' && dl !== null) right = dl < 0 ? '<span class="bad">Lewat ' + (-dl) + ' hari</span>' : '<span>Sisa ' + dl + ' hari</span>';
+  var left = it.status === 'selesai' ? 'Terverifikasi ' + isvEsc(it.tglVerif)
+    : (it.step === 50 ? 'Follow up ' + isvEsc(it.tglFollowUp) + ' · menunggu verifikasi' : 'Belum ada follow up');
+  return '<div class="cx-item' + (it.status === 'terlambat' ? ' late' : '') + '" onclick="isvOpen(' + it.rowNumber + ')">'
+    + '<div class="cx-item-top"><div class="cx-item-title">' + (it.no !== '' ? isvEsc(it.no) + '. ' : '') + isvEsc(it.keterangan) + '</div>'
+    + '<span class="status-pill ' + ISV_PILL[it.status] + '">' + ISV_LBL[it.status] + '</span></div>'
+    + '<div class="cx-item-meta">' + (it.deadline ? 'Deadline ' + isvEsc(it.deadline) : 'Deadline belum diisi') + '</div>'
+    + '<div class="cx-bar' + (it.status === 'terlambat' ? ' low' : '') + '"><i style="width:' + it.step + '%"></i></div>'
+    + '<div class="cx-item-foot"><span>' + left + '</span>' + right + '</div></div>';
+}
+
+function isvDrawList(){
+  if(CURRENT_TAB !== 'isv' || !ISV.data) return;
+  var res = ISV.data, area = document.getElementById('content-area'), pk = res.pabriks;
+  if(!pk.length){ area.innerHTML = '<div class="empty-state">Tidak ada data ISV.</div>'; return; }
+  if(pk.indexOf(ISV.tab) < 0) ISV.tab = pk[0];
+  var items = res.data[ISV.tab].items, s = isvSum(items);
+
+  var h = CURRENT_USER.role === 'ISV' ? '' : '<div class="breadcrumb" onclick="goTo(\'dashboard\')">← Kembali ke Dashboard</div>';
+  h += '<div class="section-title">ISV — ' + ISV.tab + '</div>';
+  if(pk.length > 1){
+    h += '<div class="pabrik-tabs">' + pk.map(function(p){
+      return '<button class="' + (p === ISV.tab ? 'active' : '') + '" onclick="isvSetTab(\'' + p + '\')">' + p + '</button>';
+    }).join('') + '</div>';
+  }
+  h += '<div class="card dark-card tone-forest cx-hero"><div class="cx-hero-row">'
+    + '<div><div class="cx-big">' + s.pct + '<small>%</small></div><div class="cx-cap">Selesai</div></div>'
+    + '<div class="cx-list"><div><span>Total temuan</span><b>' + s.total + '</b></div>'
+    + '<div><span>Terlambat</span><b class="' + (s.terlambat ? 'neg' : 'pos') + '">' + s.terlambat + '</b></div></div></div>'
+    + '<div class="cx-counts">' + ['belum','berjalan','terlambat','selesai'].map(function(k){
+        return '<div class="cx-cnt s-' + k + (ISV.filter === k ? ' on' : '') + '" onclick="isvSetFilter(\'' + k + '\')"><b>' + s[k] + '</b><span>' + ISV_LBL[k] + '</span></div>';
+      }).join('') + '</div></div>';
+
+  var list = items.filter(function(i){ return ISV.filter === 'ALL' || i.status === ISV.filter; });
+  list.sort(function(a, b){ return (ISV_ORD[a.status] - ISV_ORD[b.status]) || (a.rowNumber - b.rowNumber); });
+  if(ISV.filter !== 'ALL') h += '<div class="cx-chips"><button class="cx-chip on" onclick="isvSetFilter(\'ALL\')">Filter: ' + ISV_LBL[ISV.filter] + ' ✕</button></div>';
+  h += list.length ? list.map(isvCard).join('') : '<div class="empty-state">Tidak ada temuan pada kategori ini.</div>';
+  area.innerHTML = h;
+}
+
+/* ---------- HALAMAN DETAIL (page, bukan modal) ---------- */
+function isvOpen(row){
+  var it = ISV.data.data[ISV.tab].items.filter(function(x){ return x.rowNumber === row; })[0];
+  if(!it){ isvBack(); return; }
+  ISV.sel = row; ISV_FOTO = { unit:null, verif:null };
+  var canEdit = ISV.data.data[ISV.tab].canEdit, dl = isvDaysLeft(it.deadlineISO);
+  var sisa = it.status === 'selesai' ? '—' : (dl === null ? '—' : (dl < 0 ? 'Lewat ' + (-dl) + ' hari' : dl + ' hari'));
+
+  var h = '<div class="breadcrumb" onclick="isvBack()">← Kembali ke daftar ISV</div>'
+    + '<div class="card"><div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:10px;">'
+    + '<div style="font-weight:800;font-size:15px;color:var(--green-dark);word-break:break-word;">' + (it.no !== '' ? isvEsc(it.no) + '. ' : '') + isvEsc(it.keterangan) + '</div>'
+    + '<span class="status-pill ' + ISV_PILL[it.status] + '">' + ISV_LBL[it.status] + '</span></div>'
+    + '<div class="cx-info"><div><span>Pabrik</span><b>' + ISV.tab + '</b></div>'
+    + '<div><span>Deadline</span><b>' + isvEsc(it.deadline || '—') + '</b></div>'
+    + '<div><span>Sisa waktu</span><b>' + sisa + '</b></div>'
+    + '<div><span>Diupdate oleh</span><b>' + isvEsc(it.oleh || '—') + '</b></div></div></div>';
+
+  h += '<div class="isv-sec">Follow Up Unit</div><div class="card">'
+    + '<div class="ios-ls-row"><span>Tanggal follow up</span><b>' + isvEsc(it.tglFollowUp || '—') + '</b></div>'
+    + '<div class="isv-sec" style="margin-top:8px;">Follow up</div><div class="isv-fu-text">' + (it.followUp ? isvEsc(it.followUp) : '<span style="color:var(--muted)">Belum ada follow up</span>') + '</div>'
+    + '<div class="isv-sec">Foto unit (sistem)</div>' + renderFotoGalleryHtml(it.fotoUnitList, 'isv-fu-' + row) + '</div>';
+
+  h += '<div class="isv-sec">Verifikasi</div><div class="card">'
+    + '<div class="ios-ls-row"><span>Tanggal verifikasi</span><b>' + isvEsc(it.tglVerif || '—') + '</b></div>'
+    + '<div class="isv-sec" style="margin-top:8px;">Foto verifikasi</div>' + renderFotoGalleryHtml(it.fotoVerifList, 'isv-vf-' + row) + '</div>';
+
+  if(canEdit && it.status !== 'selesai'){
+    if(it.step === 0){
+      h += '<div class="cx-form"><div style="font-weight:800;color:var(--green-dark);margin-bottom:8px;">Update Follow Up</div>'
+        + '<div class="field"><label>Tanggal</label><input type="date" id="isv-date" value="' + isvTodayISO() + '"></div>'
+        + '<div class="field"><label>Follow up yang dilakukan</label><textarea id="isv-fu" placeholder="Jelaskan tindak lanjut..."></textarea></div>'
+        + '<div class="field"><label>Foto sistem unit</label><input type="file" id="isv-file-unit" accept="image/*" onchange="isvPickFoto(this,\'unit\')">'
+        + '<img id="isv-prev-unit" class="photo-preview" style="display:none;"></div>'
+        + '<div id="isv-msg"></div><button class="btn" id="isv-btn" onclick="isvSaveFollowUp(' + row + ')">Simpan Follow Up</button></div>';
+    } else {
+      h += '<div class="cx-form"><div style="font-weight:800;color:var(--green-dark);margin-bottom:8px;">Upload Verifikasi (Close)</div>'
+        + '<div class="field"><label>Foto bukti verifikasi</label><input type="file" id="isv-file-verif" accept="image/*" onchange="isvPickFoto(this,\'verif\')">'
+        + '<img id="isv-prev-verif" class="photo-preview" style="display:none;"></div>'
+        + '<div id="isv-msg"></div><button class="btn gold" id="isv-btn" onclick="isvSaveVerif(' + row + ')">Simpan &amp; Close</button></div>';
+    }
+  }
+  document.getElementById('content-area').innerHTML = h;
+  window.scrollTo(0, 0);
+}
+
+/** Foto dikecilkan (maks 1280px, JPEG) supaya upload dari HP cepat & aman */
+function isvPickFoto(input, kind){
+  var f = input.files[0]; if(!f) return;
+  var msg = document.getElementById('isv-msg');
+  var rd = new FileReader();
+  rd.onload = function(e){
+    var img = new Image();
+    img.onload = function(){
+      var k = Math.min(1, 1280 / Math.max(img.width, img.height));
+      var c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      var uri = c.toDataURL('image/jpeg', 0.82);
+      ISV_FOTO[kind] = { b64: uri.split(',')[1], mime: 'image/jpeg', name: (f.name || 'foto').replace(/\.[^.]+$/, '') + '.jpg' };
+      var pv = document.getElementById('isv-prev-' + kind);
+      pv.src = uri; pv.style.display = 'block'; pv.onclick = function(){ openFotoLightbox(uri); };
+      if(msg) msg.innerHTML = '';
+    };
+    img.onerror = function(){ if(msg) msg.innerHTML = '<div class="msg error">File harus berupa gambar</div>'; };
+    img.src = e.target.result;
+  };
+  rd.readAsDataURL(f);
+}
+
+function isvSend(fnName, payload, row){
+  var msg = document.getElementById('isv-msg'), btn = document.getElementById('isv-btn');
+  msg.innerHTML = '<div class="msg success">Saving...</div>'; btn.disabled = true;
+  google.script.run.withSuccessHandler(function(res){
+    msg.innerHTML = '<div class="msg ' + (res.success ? 'success' : 'error') + '">' + isvEsc(res.message) + '</div>';
+    if(res.success){
+      showToast('✅ ' + res.message);
+      setTimeout(function(){ isvLoad(function(){ isvOpen(row); }, function(m){ showToast(m); }); }, 500);
+    } else btn.disabled = false;
+  }).withFailureHandler(function(e){
+    msg.innerHTML = '<div class="msg error">Gagal: ' + isvEsc(e.message) + '</div>'; btn.disabled = false;
+  })[fnName](payload);
+}
+function isvSaveFollowUp(row){
+  var d = document.getElementById('isv-date').value, t = document.getElementById('isv-fu').value.trim(), f = ISV_FOTO.unit;
+  if(!d || !t || !f){ document.getElementById('isv-msg').innerHTML = '<div class="msg error">Tanggal, follow up, dan foto sistem wajib diisi</div>'; return; }
+  isvSend('updateIsvFollowUp', { email:CURRENT_USER.email, pabrik:ISV.tab, rowNumber:row, tanggal:d, followUp:t,
+    fotoBase64:f.b64, fotoMime:f.mime, fotoName:f.name }, row);
+}
+function isvSaveVerif(row){
+  var f = ISV_FOTO.verif;
+  if(!f){ document.getElementById('isv-msg').innerHTML = '<div class="msg error">Foto verifikasi wajib diupload</div>'; return; }
+  isvSend('submitIsvVerifikasi', { email:CURRENT_USER.email, pabrik:ISV.tab, rowNumber:row,
+    fotoBase64:f.b64, fotoMime:f.mime, fotoName:f.name }, row);
 }
 </script>
 </body>
