@@ -9575,6 +9575,15 @@ function cxSave(row){
 .isv-dl.late{background:#fde6e4;color:#b42318;border-left:4px solid #d64545;}
 .isv-dl.ok{background:#eef3d8;color:#315a2d;border-left:4px solid #888f0a;}
 .isv-dl.none{background:#f1f1ea;color:var(--muted);border-left:4px solid #c4c9b8;}
+.isv-txt{flex:1;min-width:0;font-size:13.5px;line-height:1.55;color:var(--text);}
+.isv-no{font-weight:800;font-size:15px;color:var(--green-dark);margin-bottom:6px;}
+.isv-h{font-weight:800;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:#4e5c00;margin:12px 0 6px;padding-bottom:4px;border-bottom:1.5px solid #e1e8cf;}
+.isv-h:first-of-type{margin-top:0;}
+.isv-li{display:flex;gap:8px;margin:0 0 8px;}
+.isv-li b{flex:0 0 auto;min-width:18px;color:var(--green-dark);}
+.isv-li span{flex:1;min-width:0;word-break:break-word;}
+.isv-p{margin:0 0 6px;word-break:break-word;}
+.cx-item-title.isv-clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
 </style>
 
 <script>
@@ -9588,6 +9597,25 @@ var ISV_CLR_LIGHT = { selesai:'#315a2d', berjalan:'#e3a72f', belum:'#e07a7a' };
 var _isvCl = [], _isvDashCl = {};
 
 function isvEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+/* Rapikan teks keterangan: judul (akhiran ":" / Ketidaksesuaian / Bukti Objektif), poin bernomor, dan bullet */
+function isvFmt(t){
+  var s = String(t == null ? '' : t).replace(/\r/g, '');
+  s = s.replace(/\s*\b(Ketidaksesuaian|Bukti Objektif)\b\s*:?\s*(?=\d{1,2}\.\s|•|\n|$)/gi, '\n$1:\n');
+  s = s.replace(/\s*•\s*/g, '\n• ');
+  s = s.replace(/\s+(?=\d{1,2}\.\s+\S)/g, '\n');
+  s = s.replace(/([^\n:]:)[ \t]+(?=\S)/g, '$1\n');
+  var h = '';
+  s.split('\n').forEach(function(l){
+    l = l.trim(); if(!l) return;
+    var m;
+    if(/:$/.test(l)) h += '<div class="isv-h">' + isvEsc(l.replace(/:$/, '')) + '</div>';
+    else if((m = l.match(/^(\d{1,2})\.\s*(.*)$/))) h += '<div class="isv-li"><b>' + m[1] + '.</b><span>' + isvEsc(m[2]) + '</span></div>';
+    else if(l.charAt(0) === '•') h += '<div class="isv-li"><b>•</b><span>' + isvEsc(l.replace(/^•\s*/, '')) + '</span></div>';
+    else h += '<div class="isv-p">' + isvEsc(l) + '</div>';
+  });
+  return h;
+}
 
 /* Muat data Sustainability di belakang layar supaya halaman langsung tampil.
    Dulu dipanggil di enterApp() & prefetchAll() tapi fungsinya belum ada -> app macet. */
@@ -9649,7 +9677,9 @@ function isvLoad(ok, fail){
 }
 function isvGo(pabrik, filter, aspek){
   ISV.tab = pabrik; ISV.filter = filter || 'ALL'; ISV.aspek = aspek || 'ALL'; ISV.sel = null;
+  ISV.top = true;
   goTo('isv');
+  window.scrollTo(0, 0);
 }
 function isvGoIdx(pabrik, i){ isvGo(pabrik, null, _isvDashCl[pabrik][i].name); }
 
@@ -9720,7 +9750,7 @@ function isvCard(it, canEdit){
       : '<button class="isv-act v" onclick="event.stopPropagation();isvOpen(' + it.rowNumber + ')">✓ Upload Verifikasi</button>';
   }
   return '<div class="cx-item" onclick="isvOpen(' + it.rowNumber + ')">'
-    + '<div class="cx-item-top"><div class="cx-item-title">' + (it.no !== '' ? isvEsc(it.no) + '. ' : '') + isvEsc(it.keterangan) + '</div>'
+    + '<div class="cx-item-top"><div class="cx-item-title isv-clamp">' + (it.no !== '' ? isvEsc(it.no) + '. ' : '') + isvEsc(it.keterangan) + '</div>'
     + '<span class="status-pill ' + ISV_PILL[it.status] + '">' + ISV_LBL[it.status] + '</span></div>'
     + '<div class="cx-item-meta">' + (it.deadline ? 'Deadline ' + isvEsc(it.deadline) : 'Deadline belum diisi') + '</div>'
     + '<div class="cx-bar"><i style="width:' + it.step + '%"></i></div>'
@@ -9838,6 +9868,7 @@ function isvDrawList(){
   }
   area.innerHTML = h;
   isvDrawChart();
+  if(ISV.top){ ISV.top = false; window.scrollTo(0, 0); document.documentElement.scrollTop = 0; document.body.scrollTop = 0; }
 }
 
 /* ================= HALAMAN DETAIL ================= */
@@ -9866,7 +9897,7 @@ function isvOpen(row){
     + dlBox
     + '<div class="card"><span class="isv-pill-asp">' + isvEsc(isvAsp(it)) + '</span>'
     + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:10px;">'
-    + '<div style="font-weight:800;font-size:15px;color:var(--green-dark);word-break:break-word;">' + (it.no !== '' ? isvEsc(it.no) + '. ' : '') + isvEsc(it.keterangan) + '</div>'
+    + '<div class="isv-txt">' + (it.no !== '' ? '<div class="isv-no">Temuan No. ' + isvEsc(it.no) + '</div>' : '') + isvFmt(it.keterangan) + '</div>'
     + '<span class="status-pill ' + ISV_PILL[it.status] + '">' + ISV_LBL[it.status] + '</span></div>'
     + '<div class="cx-info"><div><span>Pabrik</span><b>' + ISV.tab + '</b></div>'
     + '<div><span>Aspek</span><b>' + isvEsc(isvAsp(it)) + '</b></div>'
