@@ -60,7 +60,9 @@
   function call(fn, args){
     return new Promise(function(res, rej){
       var low = (fn === 'getImagesBatch' || fn === 'getImageBase64');   // foto selalu paling belakang
-      (low ? lo : hi).push({ fn: fn, args: args, res: res, rej: rej });
+      var job = { fn: fn, args: args, res: res, rej: rej };
+      if(fn === 'getIsvData'){ run(job); return; }   // jalur khusus: langsung kirim, tidak antre
+      (low ? lo : hi).push(job);
       next();
     });
   }
