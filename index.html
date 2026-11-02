@@ -21,7 +21,7 @@
 /* Shim: google.script.run -> fetch ke GAS Web App (antrian + retry + warm-up + auto-invalidate cache) */
 (function(){
   var API_URL = 'https://script.google.com/macros/s/AKfycbwmrUyLFYVXR03-E81V9ZlF6loqNLBYHRelhoRasVEP226Swciv4R7QAJfbZijxIdOehg/exec';
-  var MAX_PARALLEL = 5, active = 0, hi = [], lo = [];
+  var MAX_PARALLEL = 6, active = 0, hi = [], lo = [];
   var NO_RETRY = /^(submit|update|approve|reject|add|assign|upload|fill|register|export)/;
   var MUTATE   = /^(submit|update|approve|reject|add|assign|upload|fill)/;
 
@@ -2055,8 +2055,9 @@ function cachedCall(cacheKey, fetchFn, onSuccess, onError){
 /** Muat semua data tab lain di belakang layar, supaya pindah tab langsung tampil */
 function prefetchAll(){
   if(!CURRENT_USER) return;
+  isvPreload();
   if(String(CURRENT_USER.posisi || '').toLowerCase().indexOf('operator') !== -1) return;
-  if(CURRENT_USER.role === 'ISV') return;
+  if(CURRENT_USER.role === 'ISV' || CURRENT_USER.role === 'SUSTAINABILITY') return;
   var email = CURRENT_USER.email, role = CURRENT_USER.role;
   var pabriks = (role === 'ADMIN' || role === 'REGIONAL' || role === 'PSM') ? ['JLMM', 'KUYM'] : [CURRENT_USER.pabrik];
   var noop = function(){}, jobs = [];
@@ -2410,6 +2411,7 @@ function enterApp(){
   const pabrikLabel = CURRENT_USER.pabrik || CURRENT_USER.role;
   document.getElementById('topbar-role').innerText = (CURRENT_USER.posisi ? CURRENT_USER.posisi + ' - ' : '') + pabrikLabel;
   checkAssistantAppreciation();
+  isvPreload();
   setTimeout(prefetchAll, 3500);   // setelah dashboard tampil, muat Lapor + Monitoring di belakang layar
 
   try {
@@ -2443,7 +2445,7 @@ function enterApp(){
       if (naveForm) naveForm.style.display = (isVpmOrPc && !eForm_VISIBLE_FOR_VPM_PC) ? 'none' : 'flex';
     }
 
-    if (CURRENT_USER.role === 'ISV') {
+    if (CURRENT_USER.role === 'ISV' || CURRENT_USER.role === 'SUSTAINABILITY') {
       if (appEl) appEl.classList.add('app-no-bottomnav');
       ['nav-dashboard','nav-monitoring','nav-capex','nav-eForm','nav-lapor'].forEach(function(id){
         var b = document.getElementById(id); if(b) b.style.display = 'none';
@@ -2480,7 +2482,7 @@ function checkAssistantAppreciation(){
 
 function goTo(tab){
   if (tab === 'lapor' && CURRENT_USER.role === 'PSM') { tab = 'dashboard'; }
-  if (CURRENT_USER.role === 'ISV') { tab = 'isv'; }
+  if (CURRENT_USER.role === 'ISV' || CURRENT_USER.role === 'SUSTAINABILITY') { tab = 'isv'; }
   const posisiLcGoTo = String(CURRENT_USER.posisi || '').toLowerCase();
   if (posisiLcGoTo.indexOf('operator') !== -1 && tab !== 'eForm') { tab = 'eForm'; }
   CURRENT_TAB = tab;
@@ -3139,6 +3141,10 @@ function renderDashboardPabrikView(){
 
   html += '<div id="isv-dash-area"></div>';
   area.innerHTML = html;
+  var _isvA = document.getElementById('isv-dash-area');
+  if (_isvA) _isvA.innerHTML = '<div class="section-divider monitoring">Sustainability</div>'
+    + '<div class="sus-card"><div class="loading">Loading Sustainability...</div></div>';
+  isvDashLoad();   // dipindah ke sini supaya antre paling depan
   loadTopCardsArea(pabrikKeys);
 
   pabrikKeys.forEach(pabrik => {
@@ -3351,7 +3357,6 @@ function renderDashboardPabrikView(){
 
   loadWtpSection(pabrikKeys);
   cxDashLoad();
-  isvDashLoad();
 
   // ── Notifikasi: admin/regional lihat pending review, KUYM/JLMM lihat status review ──
   loadDashboardNotifications();
@@ -9512,7 +9517,7 @@ function cxSave(row){
 /* ===== SUSTAINABILITY ===== */
 .cx-form textarea{width:100%;min-height:90px;border-radius:10px;border:1px solid #dde3dd;padding:10px;font-size:13px;box-sizing:border-box;background:#fff;}
 .cx-item-title{word-break:break-word;}
-.cx-cnt.s-belum b{color:#fff;}
+.cx-cnt.s-belum b{color:#ff9b9b;}
 .isv-sec{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:14px 2px 6px;}
 .isv-fu-text{font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
 
@@ -9521,7 +9526,6 @@ function cxSave(row){
 .sus-card{flex:1 1 320px;min-width:0;background:#132b15;border-radius:22px;padding:16px;color:#fff;}
 .sus-card .util-body{margin-top:4px;}
 .sus-card .util-ringwrap{cursor:default;}
-.sus-alert{margin-top:12px;padding:10px 12px;border-radius:12px;background:rgba(255,138,138,.16);color:#ffb3b3;font-size:12px;font-weight:700;cursor:pointer;display:flex;gap:8px;align-items:center;}
 .sus-sec{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.5);margin:16px 0 4px;}
 .sus-asp{padding:9px 0;border-bottom:1px solid rgba(255,255,255,.08);cursor:pointer;}
 .sus-asp:last-child{border-bottom:none;}
@@ -9530,27 +9534,28 @@ function cxSave(row){
 .sus-asp-top .n{font-size:12.5px;font-weight:700;color:#fff;}
 .sus-asp-top .v{font-size:13px;font-weight:800;color:#ebf2a3;white-space:nowrap;}
 .sus-asp-top .v em{font-style:normal;font-size:10.5px;font-weight:600;color:rgba(255,255,255,.5);margin-left:4px;}
-.sus-asp-top .v.bad{color:#ff9b9b;}
 .sus-bar{display:flex;height:8px;border-radius:99px;overflow:hidden;background:rgba(255,255,255,.12);}
 .sus-bar i{display:block;height:100%;}
 .sus-legend{display:flex;gap:12px;flex-wrap:wrap;font-size:10.5px;color:rgba(255,255,255,.6);margin-top:10px;}
 .sus-legend span::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:var(--c);}
 
-/* --- Halaman daftar: cluster aspek --- */
+/* --- Halaman: cluster aspek --- */
 .asp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin:4px 0 12px;}
 .asp-card{background:#fff;border:1.5px solid rgba(19,43,21,.08);border-radius:16px;padding:11px 12px;cursor:pointer;}
 .asp-card:active{background:#f3f7e6;}
 .asp-card.on{border-color:#132b15;background:#f3f6d6;}
-.asp-card.warn{border-left:4px solid #d64545;}
 .asp-name{font-size:12.5px;font-weight:800;color:var(--green-dark);line-height:1.25;word-break:break-word;}
 .asp-pct{font-size:20px;font-weight:800;color:var(--green-dark);margin:4px 0 6px;line-height:1;}
 .asp-pct small{font-size:10.5px;font-weight:700;color:var(--muted);margin-left:4px;}
 .asp-card .sus-bar{background:#e1e8cf;}
 .asp-meta{font-size:10.5px;color:var(--muted);margin-top:6px;}
-.asp-meta b{color:#b42318;}
 .isv-grp{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:16px 2px 8px;padding-bottom:6px;border-bottom:2px solid #132b15;}
 .isv-grp b{font-size:13px;color:var(--green-dark);}
 .isv-grp span{font-size:11px;font-weight:700;color:var(--muted);}
+.isv-c3{grid-template-columns:repeat(3,1fr) !important;}
+.isv-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:rgba(255,255,255,.7);margin:2px 0 8px;}
+.isv-legend span::before{content:'';display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;background:var(--c);}
+.isv-ro{font-size:11px;color:var(--muted);text-align:center;margin:-4px 0 10px;}
 
 /* --- Aksi cepat staff --- */
 .isv-act{margin-top:10px;width:100%;border:0;border-radius:12px;padding:10px;font-size:12.5px;font-weight:800;cursor:pointer;background:#132b15;color:#ebf2a3;}
@@ -9561,37 +9566,57 @@ function cxSave(row){
 .isv-steps div.done{background:#132b15;color:#ebf2a3;}
 .isv-steps div.now{background:#e3a72f;color:#132b15;}
 .isv-pill-asp{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:99px;background:#f3f6d6;color:var(--green-dark);margin-bottom:4px;}
+
+/* --- Keterangan deadline (hanya di detail) --- */
+.isv-dl{display:flex;gap:10px;align-items:center;padding:11px 13px;border-radius:14px;margin-bottom:12px;font-size:12.5px;font-weight:700;}
+.isv-dl b{font-size:14px;}
+.isv-dl.late{background:#fde6e4;color:#b42318;border-left:4px solid #d64545;}
+.isv-dl.ok{background:#eef3d8;color:#315a2d;border-left:4px solid #888f0a;}
+.isv-dl.none{background:#f1f1ea;color:var(--muted);border-left:4px solid #c4c9b8;}
 </style>
 
 <script>
 var ISV = { tab:'', filter:'ALL', aspek:'ALL', data:null, sel:null };
-var ISV_LBL = { belum:'Open', berjalan:'On Progress', terlambat:'Terlambat', selesai:'Selesai' };
-var ISV_PILL = { belum:'open', berjalan:'on-progress', terlambat:'reject', selesai:'close' };
-var ISV_ORD = { terlambat:0, berjalan:1, belum:2, selesai:3 };
+var ISV_LBL = { belum:'Open', berjalan:'On Progress', selesai:'Selesai' };
+var ISV_PILL = { belum:'open', berjalan:'on-progress', selesai:'close' };
+var ISV_ORD = { belum:0, berjalan:1, selesai:2 };
 var ISV_FOTO = { unit:null, verif:null };
-var ISV_CLR_DARK  = { selesai:'#ebf2a3', berjalan:'#e3a72f', terlambat:'#ff8a8a', belum:'rgba(255,255,255,.28)' };
-var ISV_CLR_LIGHT = { selesai:'#315a2d', berjalan:'#e3a72f', terlambat:'#d64545', belum:'#cbd2b8' };
+var ISV_CLR_DARK  = { selesai:'#ebf2a3', berjalan:'#e3a72f', belum:'#ff8a8a' };
+var ISV_CLR_LIGHT = { selesai:'#315a2d', berjalan:'#e3a72f', belum:'#e07a7a' };
 var _isvCl = [], _isvDashCl = {};
 
 function isvEsc(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+/* Muat data Sustainability di belakang layar supaya halaman langsung tampil.
+   Dulu dipanggil di enterApp() & prefetchAll() tapi fungsinya belum ada -> app macet. */
+function isvPreload(){
+  try{
+    if(!CURRENT_USER) return;
+    if(['ISV','SUSTAINABILITY','ADMIN','REGIONAL','PSM','JLMM','KUYM'].indexOf(CURRENT_USER.role) === -1) return;
+    var email = CURRENT_USER.email, noop = function(){};
+    cachedCall('isv4', function(ok, bad){
+      google.script.run.withSuccessHandler(ok).withFailureHandler(bad).getIsvData(email);
+    }, noop, noop);
+  }catch(e){}
+}
 function isvTodayISO(){ var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
 function isvAsp(it){ return it.aspek || 'Lainnya'; }
 function isvSum(items){
-  var s = { total:items.length, belum:0, berjalan:0, terlambat:0, selesai:0 };
-  items.forEach(function(i){ s[i.status]++; });
+  var s = { total:items.length, belum:0, berjalan:0, selesai:0, late:0 };
+  items.forEach(function(i){ s[i.status]++; if(i.late && i.status !== 'selesai') s.late++; });
   s.pct = s.total ? Math.round(s.selesai / s.total * 100) : 0;
   return s;
 }
-/* Kelompokkan temuan per Aspek; yang paling bermasalah (terlambat) tampil dulu */
+/* Kelompokkan temuan per Aspek; aspek dengan Open terbanyak tampil dulu */
 function isvClusters(items){
   var m = {}, order = [];
   items.forEach(function(i){ var a = isvAsp(i); if(!m[a]){ m[a] = []; order.push(a); } m[a].push(i); });
   return order.map(function(a){ return { name:a, items:m[a], s:isvSum(m[a]) }; })
-    .sort(function(x, y){ return (y.s.terlambat - x.s.terlambat) || (y.s.total - x.s.total) || x.name.localeCompare(y.name); });
+    .sort(function(x, y){ return (y.s.belum - x.s.belum) || (y.s.total - x.s.total) || x.name.localeCompare(y.name); });
 }
 function isvBar(s, light){
   var c = light ? ISV_CLR_LIGHT : ISV_CLR_DARK, h = '<div class="sus-bar">';
-  ['selesai','berjalan','terlambat','belum'].forEach(function(k){
+  ['selesai','berjalan','belum'].forEach(function(k){
     if(s[k]) h += '<i style="width:' + (s[k] / s.total * 100) + '%;background:' + c[k] + '"></i>';
   });
   return h + '</div>';
@@ -9602,12 +9627,22 @@ function isvDaysLeft(iso){
   t = new Date(t.getFullYear(), t.getMonth(), t.getDate());
   return Math.round((d - t) / 864e5);
 }
+/* Jaga-jaga data lama di cache: status 'terlambat' dianggap Open */
+function isvNorm(res){
+  (res.pabriks || []).forEach(function(p){
+    ((res.data[p] || {}).items || []).forEach(function(it){
+      if(it.status === 'terlambat'){ it.status = 'belum'; it.late = true; }
+      it.late = !!it.late;
+    });
+  });
+  return res;
+}
 function isvLoad(ok, fail){
-  cachedCall('isv3', function(cb, bad){
+  cachedCall('isv4', function(cb, bad){
     google.script.run.withSuccessHandler(cb).withFailureHandler(bad).getIsvData(CURRENT_USER.email);
   }, function(res){
     if(!res || !res.success){ fail((res && res.message) || 'Gagal Loading'); return; }
-    ISV.data = res; ok(res);
+    ISV.data = isvNorm(res); ok(ISV.data);
   }, function(e){ fail(e.message); });
 }
 function isvGo(pabrik, filter, aspek){
@@ -9633,39 +9668,36 @@ function isvDashDraw(res){
   list.forEach(function(p){
     var items = res.data[p].items, s = isvSum(items), cl = isvClusters(items);
     _isvDashCl[p] = cl;
-    var C = 2 * Math.PI * 40, off = C * (1 - s.pct / 100), tone = s.terlambat ? 'red' : 'green';
+    var C = 2 * Math.PI * 40, off = C * (1 - s.pct / 100);
     function row(k, lbl){
-      return '<div class="util-item go' + (k === 'terlambat' && s[k] ? ' u-red' : '') + '" onclick="isvGo(\'' + p + '\',\'' + k + '\')"><span class="l">' + lbl + '</span><span class="v">' + s[k] + ' <em>›</em></span></div>';
+      return '<div class="util-item go" onclick="isvGo(\'' + p + '\',\'' + k + '\')"><span class="l">' + lbl + '</span><span class="v">' + s[k] + ' <em>›</em></span></div>';
     }
     h += '<div class="sus-card">'
       + '<div class="pcg-head"><div><div class="pcg-title">Sustainability</div>'
       + '<div class="pcg-sub">' + p + ' · ' + s.total + ' temuan · ' + cl.length + ' aspek</div></div>'
-      + '<div class="pcg-avatar' + (s.terlambat ? ' red' : '') + '">' + MI.clip + '</div></div>'
+      + '<div class="pcg-avatar">' + MI.clip + '</div></div>'
       + '<div class="util-body">'
       + '<div class="util-ringwrap"><svg viewBox="0 0 100 100" class="util-ring"><circle cx="50" cy="50" r="40" class="rt"/>'
-      + '<circle cx="50" cy="50" r="40" class="rf f-' + tone + '" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '" transform="rotate(-90 50 50)"/></svg>'
-      + '<div class="util-ringtxt"><div class="util-big t-' + tone + '">' + s.pct + '<small>%</small></div><div class="util-mon">Selesai</div></div></div>'
-      + '<div class="util-list">' + row('selesai', 'Selesai') + row('berjalan', 'On Progress') + row('terlambat', 'Terlambat') + row('belum', 'Open') + '</div></div>';
-    if(s.terlambat){
-      h += '<div class="sus-alert" onclick="isvGo(\'' + p + '\',\'terlambat\')">⚠ ' + s.terlambat + ' temuan melewati deadline — klik untuk lihat</div>';
-    }
-    h += '<div class="sus-sec">Progress per Aspek</div>';
+      + '<circle cx="50" cy="50" r="40" class="rf f-green" stroke-dasharray="' + C.toFixed(1) + '" stroke-dashoffset="' + off.toFixed(1) + '" transform="rotate(-90 50 50)"/></svg>'
+      + '<div class="util-ringtxt"><div class="util-big t-green">' + s.pct + '<small>%</small></div><div class="util-mon">Selesai</div></div></div>'
+      + '<div class="util-list">' + row('selesai', 'Selesai') + row('berjalan', 'On Progress') + row('belum', 'Open') + '</div></div>'
+      + '<div class="sus-sec">Progress per Aspek</div>';
     cl.forEach(function(c, i){
       h += '<div class="sus-asp" onclick="isvGoIdx(\'' + p + '\',' + i + ')">'
         + '<div class="sus-asp-top"><span class="n">' + isvEsc(c.name) + '</span>'
-        + '<span class="v' + (c.s.terlambat ? ' bad' : '') + '">' + c.s.pct + '%<em>' + c.s.selesai + '/' + c.s.total + (c.s.terlambat ? ' · ' + c.s.terlambat + ' telat' : '') + '</em></span></div>'
+        + '<span class="v">' + c.s.pct + '%<em>' + c.s.selesai + '/' + c.s.total + ' selesai</em></span></div>'
         + isvBar(c.s, false) + '</div>';
     });
-    h += '<div class="sus-legend"><span style="--c:#ebf2a3">Selesai</span><span style="--c:#e3a72f">On Progress</span><span style="--c:#ff8a8a">Terlambat</span><span style="--c:rgba(255,255,255,.4)">Open</span></div>'
+    h += '<div class="sus-legend"><span style="--c:#ebf2a3">Selesai</span><span style="--c:#e3a72f">On Progress</span><span style="--c:#ff8a8a">Open</span></div>'
       + '</div>';
   });
   area.innerHTML = h + '</div>';
 }
 
-/* ================= HALAMAN SUSTAINABILITY (daftar) ================= */
+/* ================= HALAMAN SUSTAINABILITY ================= */
 function renderIsv(){
   var area = document.getElementById('content-area');
-  if(!cacheHas('isv3')) area.innerHTML = '<div class="section-title">Sustainability</div><div class="loading">Loading data Sustainability...</div>';
+  if(!cacheHas('isv4')) area.innerHTML = '<div class="section-title">Sustainability</div><div class="loading">Loading data Sustainability...</div>';
   isvLoad(function(){ if(CURRENT_TAB === 'isv') (ISV.sel ? isvOpen(ISV.sel) : isvDrawList()); }, function(m){
     area.innerHTML = '<div class="section-title">Sustainability</div><div class="empty-state">' + isvEsc(m) + '</div>';
   });
@@ -9676,22 +9708,55 @@ function isvSetAspek(i){ ISV.aspek = (i < 0) ? 'ALL' : _isvCl[i].name; isvDrawLi
 function isvBack(){ ISV.sel = null; isvDrawList(); }
 
 function isvCard(it, canEdit){
-  var dl = isvDaysLeft(it.deadlineISO), right = '';
-  if(it.status !== 'selesai' && dl !== null) right = dl < 0 ? '<span class="bad">Lewat ' + (-dl) + ' hari</span>' : '<span>Sisa ' + dl + ' hari</span>';
   var left = it.status === 'selesai' ? 'Terverifikasi ' + isvEsc(it.tglVerif)
-    : (it.step === 50 ? 'Follow up ' + isvEsc(it.tglFollowUp) + ' · menunggu verifikasi' : 'Belum ada follow up');
+    : (it.step === 50 ? 'Follow up ' + isvEsc(it.tglFollowUp) + ' · menunggu verifikasi'
+    : (it.late ? 'Belum ada follow up · lihat detail' : 'Belum ada follow up'));
   var act = '';
   if(canEdit && it.status !== 'selesai'){
     act = it.step === 0
       ? '<button class="isv-act" onclick="event.stopPropagation();isvOpen(' + it.rowNumber + ')">＋ Isi Follow Up</button>'
       : '<button class="isv-act v" onclick="event.stopPropagation();isvOpen(' + it.rowNumber + ')">✓ Upload Verifikasi</button>';
   }
-  return '<div class="cx-item' + (it.status === 'terlambat' ? ' late' : '') + '" onclick="isvOpen(' + it.rowNumber + ')">'
+  return '<div class="cx-item" onclick="isvOpen(' + it.rowNumber + ')">'
     + '<div class="cx-item-top"><div class="cx-item-title">' + (it.no !== '' ? isvEsc(it.no) + '. ' : '') + isvEsc(it.keterangan) + '</div>'
     + '<span class="status-pill ' + ISV_PILL[it.status] + '">' + ISV_LBL[it.status] + '</span></div>'
     + '<div class="cx-item-meta">' + (it.deadline ? 'Deadline ' + isvEsc(it.deadline) : 'Deadline belum diisi') + '</div>'
-    + '<div class="cx-bar' + (it.status === 'terlambat' ? ' low' : '') + '"><i style="width:' + it.step + '%"></i></div>'
-    + '<div class="cx-item-foot"><span>' + left + '</span>' + right + '</div>' + act + '</div>';
+    + '<div class="cx-bar"><i style="width:' + it.step + '%"></i></div>'
+    + '<div class="cx-item-foot"><span>' + left + '</span></div>' + act + '</div>';
+}
+
+/* Grafik batang bertumpuk per aspek (klik bar = fokus ke aspek) */
+function isvDrawChart(){
+  var cl = _isvCl; if(!cl.length || !document.getElementById('isv-asp-chart')) return;
+  var C = ISV_CLR_DARK, tot = cl.map(function(c){ return c.s.total; });
+  var box = document.getElementById('isv-asp-box'); if(box) box.style.height = Math.max(130, cl.length * 38 + 20) + 'px';
+  var totalLbl = { id:'isvTotLbl', afterDatasetsDraw:function(ch){
+    var ctx = ch.ctx;
+    cl.forEach(function(c, i){
+      var bar = null;
+      for(var d = ch.data.datasets.length - 1; d >= 0; d--){ if(ch.data.datasets[d].data[i] > 0){ bar = ch.getDatasetMeta(d).data[i]; break; } }
+      if(!bar) return;
+      ctx.save(); ctx.fillStyle = '#ebf2a3'; ctx.font = "800 12px 'Miriam Libre', sans-serif";
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(String(tot[i]), bar.x + 8, bar.y); ctx.restore();
+    });
+  }};
+  function ds(k, lbl){ return { label:lbl, data:cl.map(function(c){ return c.s[k]; }), backgroundColor:C[k], borderRadius:999, borderSkipped:false, stack:'s', maxBarThickness:22 }; }
+  safeChart('isv-asp-chart', {
+    type:'bar', plugins:[totalLbl],
+    data:{ labels:cl.map(function(c){ return c.name; }), datasets:[ ds('selesai','Selesai'), ds('berjalan','On Progress'), ds('belum','Open') ] },
+    options:{
+      indexAxis:'y', maintainAspectRatio:false, layout:{ padding:{ right:28 } },
+      animation:{ duration:700, easing:'easeOutQuart' },
+      onClick:function(evt, els){ if(els.length) isvSetAspek(els[0].index); },
+      onHover:function(evt, els){ evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+      plugins:{ legend:{ display:false },
+        tooltip:{ backgroundColor:'rgba(255,255,255,.96)', titleColor:'#132b15', bodyColor:'#132b15', padding:10, cornerRadius:10,
+          titleFont:{ family:WTP_FONT, weight:'700' }, bodyFont:{ family:WTP_FONT },
+          callbacks:{ label:function(c){ return ' ' + c.dataset.label + ': ' + c.parsed.x + ' temuan'; } } } },
+      scales:{ x:{ stacked:true, display:false, grid:{ display:false }, border:{ display:false } },
+        y:{ stacked:true, ticks:{ font:{ size:11, weight:'600', family:WTP_FONT }, color:'#e3ead0' }, grid:{ display:false }, border:{ display:false } } }
+    }
+  });
 }
 
 function isvDrawList(){
@@ -9700,42 +9765,50 @@ function isvDrawList(){
   if(!pk.length){ area.innerHTML = '<div class="empty-state">Tidak ada data Sustainability.</div>'; return; }
   if(pk.indexOf(ISV.tab) < 0) ISV.tab = pk[0];
   var all = res.data[ISV.tab].items, canEdit = res.data[ISV.tab].canEdit, s = isvSum(all);
+  var onlyRole = (CURRENT_USER.role === 'ISV' || CURRENT_USER.role === 'SUSTAINABILITY');
   _isvCl = isvClusters(all);
   if(ISV.aspek !== 'ALL' && !_isvCl.some(function(c){ return c.name === ISV.aspek; })) ISV.aspek = 'ALL';
 
-  var h = CURRENT_USER.role === 'ISV' ? '' : '<div class="breadcrumb" onclick="goTo(\'dashboard\')">← Kembali ke Dashboard</div>';
+  var h = onlyRole ? '' : '<div class="breadcrumb" onclick="goTo(\'dashboard\')">← Kembali ke Dashboard</div>';
   h += '<div class="section-title">Sustainability — ' + ISV.tab + '</div>';
   if(pk.length > 1){
     h += '<div class="pabrik-tabs">' + pk.map(function(p){
       return '<button class="' + (p === ISV.tab ? 'active' : '') + '" onclick="isvSetTab(\'' + p + '\')">' + p + '</button>';
     }).join('') + '</div>';
   }
+  if(!canEdit) h += '<div class="isv-ro">Mode lihat saja</div>';
 
   /* ringkasan + filter status */
   h += '<div class="card dark-card tone-forest cx-hero"><div class="cx-hero-row">'
     + '<div><div class="cx-big">' + s.pct + '<small>%</small></div><div class="cx-cap">Selesai</div></div>'
     + '<div class="cx-list"><div><span>Total temuan</span><b>' + s.total + '</b></div>'
     + '<div><span>Jumlah aspek</span><b>' + _isvCl.length + '</b></div>'
-    + '<div><span>Terlambat</span><b class="' + (s.terlambat ? 'neg' : 'pos') + '">' + s.terlambat + '</b></div></div></div>'
-    + '<div class="cx-counts">' + ['belum','berjalan','terlambat','selesai'].map(function(k){
+    + '<div><span>Open (belum selesai)</span><b class="' + (s.belum ? 'neg' : 'pos') + '">' + s.belum + '</b></div></div></div>'
+    + '<div class="cx-counts isv-c3">' + ['belum','berjalan','selesai'].map(function(k){
         return '<div class="cx-cnt s-' + k + (ISV.filter === k ? ' on' : '') + '" onclick="isvSetFilter(\'' + k + '\')"><b>' + s[k] + '</b><span>' + ISV_LBL[k] + '</span></div>';
       }).join('') + '</div></div>';
+
+  /* grafik per aspek */
+  h += '<div class="card dark-card tone-forest"><div class="dc-title">Status per Aspek</div>'
+    + '<div class="isv-legend"><span style="--c:#ebf2a3">Selesai</span><span style="--c:#e3a72f">On Progress</span><span style="--c:#ff8a8a">Open</span></div>'
+    + '<div id="isv-asp-box" style="position:relative;"><canvas id="isv-asp-chart"></canvas></div>'
+    + '<div class="pcg-hint">Klik bar untuk melihat temuan aspek tersebut</div></div>';
 
   /* cluster aspek */
   h += '<div class="isv-sec">Cluster Aspek (klik untuk fokus)</div><div class="asp-grid">'
     + '<div class="asp-card' + (ISV.aspek === 'ALL' ? ' on' : '') + '" onclick="isvSetAspek(-1)"><div class="asp-name">Semua Aspek</div>'
     + '<div class="asp-pct">' + s.pct + '%<small>' + s.selesai + '/' + s.total + '</small></div>' + isvBar(s, true) + '</div>';
   _isvCl.forEach(function(c, i){
-    h += '<div class="asp-card' + (ISV.aspek === c.name ? ' on' : '') + (c.s.terlambat ? ' warn' : '') + '" onclick="isvSetAspek(' + i + ')">'
+    h += '<div class="asp-card' + (ISV.aspek === c.name ? ' on' : '') + '" onclick="isvSetAspek(' + i + ')">'
       + '<div class="asp-name">' + isvEsc(c.name) + '</div>'
       + '<div class="asp-pct">' + c.s.pct + '%<small>' + c.s.selesai + '/' + c.s.total + '</small></div>' + isvBar(c.s, true)
-      + '<div class="asp-meta">' + (c.s.terlambat ? '<b>' + c.s.terlambat + ' terlambat</b>' : (c.s.total - c.s.selesai) + ' belum selesai') + '</div></div>';
+      + '<div class="asp-meta">' + (c.s.belum ? c.s.belum + ' open' : 'Semua selesai') + '</div></div>';
   });
   h += '</div>';
 
-  /* chip filter cepat untuk staff */
+  /* chip filter */
   var todo = s.total - s.selesai;
-  if(canEdit || ISV.filter !== 'ALL'){
+  if(canEdit || ISV.filter !== 'ALL' || ISV.aspek !== 'ALL'){
     h += '<div class="cx-chips">';
     if(canEdit) h += '<button class="cx-chip' + (ISV.filter === 'todo' ? ' on' : '') + '" onclick="isvSetFilter(\'todo\')">Perlu Update (' + todo + ')</button>';
     if(ISV.filter !== 'ALL' && ISV.filter !== 'todo') h += '<button class="cx-chip on" onclick="isvSetFilter(\'ALL\')">Filter: ' + ISV_LBL[ISV.filter] + ' ✕</button>';
@@ -9762,6 +9835,7 @@ function isvDrawList(){
     });
   }
   area.innerHTML = h;
+  isvDrawChart();
 }
 
 /* ================= HALAMAN DETAIL ================= */
@@ -9770,12 +9844,24 @@ function isvOpen(row){
   if(!it){ isvBack(); return; }
   ISV.sel = row; ISV_FOTO = { unit:null, verif:null };
   var canEdit = ISV.data.data[ISV.tab].canEdit, dl = isvDaysLeft(it.deadlineISO);
-  var sisa = it.status === 'selesai' ? '—' : (dl === null ? '—' : (dl < 0 ? 'Lewat ' + (-dl) + ' hari' : dl + ' hari'));
+
+  /* keterangan terlambat / tidak (hanya di detail) */
+  var dlBox = '';
+  if(it.status === 'selesai'){
+    dlBox = '<div class="isv-dl ok">✓ Temuan sudah ditutup' + (it.tglVerif ? ' pada ' + isvEsc(it.tglVerif) : '') + '</div>';
+  } else if(dl === null){
+    dlBox = '<div class="isv-dl none">Deadline belum diisi</div>';
+  } else if(it.late || dl < 0){
+    dlBox = '<div class="isv-dl late">⚠ <div><b>Terlambat ' + (dl < 0 ? (-dl) + ' hari' : '') + '</b><br>Melewati deadline ' + isvEsc(it.deadline) + '</div></div>';
+  } else {
+    dlBox = '<div class="isv-dl ok">✓ <div><b>Belum terlambat</b><br>Sisa ' + dl + ' hari sampai deadline ' + isvEsc(it.deadline) + '</div></div>';
+  }
 
   var h = '<div class="breadcrumb" onclick="isvBack()">← Kembali ke daftar</div>'
     + '<div class="isv-steps"><div class="done">1 · Temuan</div>'
     + '<div class="' + (it.step >= 50 ? 'done' : 'now') + '">2 · Follow Up</div>'
     + '<div class="' + (it.step === 100 ? 'done' : (it.step === 50 ? 'now' : '')) + '">3 · Verifikasi</div></div>'
+    + dlBox
     + '<div class="card"><span class="isv-pill-asp">' + isvEsc(isvAsp(it)) + '</span>'
     + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:10px;">'
     + '<div style="font-weight:800;font-size:15px;color:var(--green-dark);word-break:break-word;">' + (it.no !== '' ? isvEsc(it.no) + '. ' : '') + isvEsc(it.keterangan) + '</div>'
@@ -9783,10 +9869,9 @@ function isvOpen(row){
     + '<div class="cx-info"><div><span>Pabrik</span><b>' + ISV.tab + '</b></div>'
     + '<div><span>Aspek</span><b>' + isvEsc(isvAsp(it)) + '</b></div>'
     + '<div><span>Deadline</span><b>' + isvEsc(it.deadline || '—') + '</b></div>'
-    + '<div><span>Sisa waktu</span><b>' + sisa + '</b></div>'
-    + '<div style="grid-column:1/-1;"><span>Diupdate oleh</span><b>' + isvEsc(it.oleh || '—') + '</b></div></div></div>';
+    + '<div><span>Diupdate oleh</span><b>' + isvEsc(it.oleh || '—') + '</b></div></div></div>';
 
-  /* form update ditaruh PALING ATAS agar staff tidak perlu scroll */
+  /* form update di PALING ATAS agar staff tidak perlu scroll */
   if(canEdit && it.status !== 'selesai'){
     if(it.step === 0){
       h += '<div class="cx-form"><div style="font-weight:800;color:var(--green-dark);margin-bottom:8px;">Langkah 2 — Isi Follow Up</div>'
