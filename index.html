@@ -1244,6 +1244,17 @@ table.lapor-table tr.row-instrument td{background:#eef1e4;}
 .mi-mon .p3{animation-delay:.7s;}
 .mi-mon .lv{animation:miBolt 1.2s ease-in-out infinite;}
 
+/* ===== Drill-down donut: tepat 2 per baris, compact ===== */
+.lapor-card-row.dgrid-2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:14px;}
+.dgrid-2 .lapor-sub-card{min-width:0;padding:12px 8px;display:flex;flex-direction:column;align-items:center;}
+.dgrid-2 .lapor-sub-card-title{font-size:12.5px;margin-bottom:6px;width:100%;}
+.dgrid-2 .donut-wrap{width:100%;}
+.dgrid-2 .donut-wrap canvas{max-width:120px !important;max-height:120px !important;}
+.dgrid-2 .donut-legend{font-size:11px;gap:10px;flex-wrap:wrap;justify-content:center;margin-top:8px;}
+@media (min-width:900px){
+  .dgrid-2 .donut-wrap canvas{max-width:150px !important;max-height:150px !important;}
+}
+
 </style>
 </head>
 <body>
@@ -4082,13 +4093,15 @@ function drillDownJenis(pabrik){
   const area = document.getElementById('content-area');
   let html = '<div class="breadcrumb" onclick="renderDashboardPabrikView()">← Kembali ke Ringkasan</div>';
   html += '<div class="section-title">' + pabrik + ' — Per Kategori</div>';
+  html += '<div class="lapor-card-row dgrid-2">';
   Object.keys(data).forEach(jenis => {
     const d = data[jenis];
-    html += '<div class="card dark-card tone-forest"><div class="dc-title">' + JENIS_META[jenis].icon + ' ' + JENIS_META[jenis].label + '</div>'
+    html += '<div class="lapor-sub-card dark-card tone-forest"><div class="lapor-sub-card-title" style="display:flex;align-items:center;justify-content:center;gap:6px;">' + JENIS_META[jenis].icon + ' ' + JENIS_META[jenis].label + '</div>'
       + '<div class="donut-wrap"><canvas id="donut2-' + jenis + '"></canvas>'
       + '<div class="donut-legend"><span><span class="dot open"></span>Open: ' + d.open + '</span>'
       + '<span><span class="dot close"></span>Close: ' + d.close + '</span></div></div></div>';
   });
+  html += '</div>';
   area.innerHTML = html;
 
   Object.keys(data).forEach(jenis => {
@@ -4135,15 +4148,17 @@ function renderBoilerNoDonuts(items, pabrik, jenis, canEdit, canApprove){
 
   let html = '<div class="breadcrumb" onclick="drillDownJenis(\'' + pabrik + '\')">← Kembali ke ' + pabrik + '</div>'
     + '<div class="section-title">Boiler — Pilih Unit</div>';
+  html += '<div class="lapor-card-row dgrid-2">';
   Object.keys(byBoiler).forEach(boilerNo => {
     const list = byBoiler[boilerNo];
     const open = list.filter(i => String(i.status).toLowerCase() === 'open').length;
     const close = list.filter(i => String(i.status).toLowerCase() === 'close').length;
-    html += '<div class="card dark-card tone-forest"><div class="dc-title">🔥 ' + boilerNo + '</div>'
+    html += '<div class="lapor-sub-card dark-card tone-forest"><div class="lapor-sub-card-title" style="display:flex;align-items:center;justify-content:center;gap:6px;">🔥 ' + boilerNo + '</div>'
       + '<div class="donut-wrap"><canvas id="donutboiler-' + boilerNo.replace(/\W/g,'_') + '"></canvas>'
       + '<div class="donut-legend"><span><span class="dot open"></span>Open: ' + open + '</span>'
       + '<span><span class="dot close"></span>Close: ' + close + '</span></div></div></div>';
   });
+  html += '</div>';
   area.innerHTML = html;
 
   Object.keys(byBoiler).forEach(boilerNo => {
