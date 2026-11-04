@@ -9673,9 +9673,14 @@ function isvDaysLeft(iso){
   return Math.round((d - t) / 864e5);
 }
 /* Jaga-jaga data lama di cache: status 'terlambat' dianggap Open */
+function isvIsReadOnly(){ return !!(CURRENT_USER && CURRENT_USER.role === 'SUSTAINABILITY'); }
+
 function isvNorm(res){
+  var ro = isvIsReadOnly();
   (res.pabriks || []).forEach(function(p){
-    ((res.data[p] || {}).items || []).forEach(function(it){
+    var d = res.data[p] || {};
+    if(ro) d.canEdit = false;
+    (d.items || []).forEach(function(it){
       if(it.status === 'terlambat'){ it.status = 'belum'; it.late = true; }
       it.late = !!it.late;
     });
@@ -9973,6 +9978,7 @@ function isvPickFoto(input, kind){
 }
 
 function isvSend(fnName, payload, row){
+  if(isvIsReadOnly()){ showToast('Akun ini hanya bisa melihat data'); return; }
   var msg = document.getElementById('isv-msg'), btn = document.getElementById('isv-btn');
   msg.innerHTML = '<div class="msg success">Saving...</div>'; btn.disabled = true;
   google.script.run.withSuccessHandler(function(res){
@@ -9987,12 +9993,14 @@ function isvSend(fnName, payload, row){
   })[fnName](payload);
 }
 function isvSaveFollowUp(row){
+  if(isvIsReadOnly()) return;
   var d = document.getElementById('isv-date').value, t = document.getElementById('isv-fu').value.trim(), f = ISV_FOTO.unit;
   if(!d || !t || !f){ document.getElementById('isv-msg').innerHTML = '<div class="msg error">Tanggal, follow up, dan foto sistem wajib diisi</div>'; return; }
   isvSend('updateIsvFollowUp', { email:CURRENT_USER.email, pabrik:ISV.tab, rowNumber:row, tanggal:d, followUp:t,
     fotoBase64:f.b64, fotoMime:f.mime, fotoName:f.name }, row);
 }
 function isvSaveVerif(row){
+  if(isvIsReadOnly()) return;
   var f = ISV_FOTO.verif;
   if(!f){ document.getElementById('isv-msg').innerHTML = '<div class="msg error">Foto verifikasi wajib diupload</div>'; return; }
   isvSend('submitIsvVerifikasi', { email:CURRENT_USER.email, pabrik:ISV.tab, rowNumber:row,
